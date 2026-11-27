@@ -392,7 +392,7 @@ st.sidebar.markdown(
 
 page = st.sidebar.radio(
     "导航",
-    ["今日信号与风控", "持仓与资金账本", "数据源健康监控"],
+    ["交易终端", "系统状态"],
     label_visibility="collapsed",
 )
 
@@ -414,14 +414,15 @@ can_write = _check_write_auth()
 
 
 # ==============================================================================
-# Page 1: Today's Signal & Risk Monitor
+# Page 1: Unified Trading Terminal (Signals + Live Performance + Ledger)
 # ==============================================================================
-if page == "今日信号与风控":
-    _render_page_header("今日交易信号与风控", f"AS OF {latest_mkt_date} · TREND-ATR")
+if page == "交易终端":
+    _render_page_header("交易终端", f"AS OF {latest_mkt_date} · TREND-ATR 100%")
 
     account = ledger.get_account()
     positions = ledger.get_positions()
     total_eq = ledger.total_equity(latest_prices)
+    mkt_val = total_eq - account.cash
     pnl = total_eq - account.initial_capital
     pnl_pct = (pnl / account.initial_capital) if account.initial_capital > 0 else 0.0
 
@@ -443,10 +444,6 @@ if page == "今日信号与风控":
         and (latest_prices.get(sym, pos.avg_cost) / pos.stop_loss_price - 1.0) < 0.025
     )
 
-    df_h = _cached_health_logs(storage.backend_name)
-    health_latest = df_h.drop_duplicates(subset=["symbol"], keep="first") if not df_h.empty else pd.DataFrame()
-    fail_cnt = int((health_latest["status"] == "failed").sum()) if not health_latest.empty else 0
-
     _render_metrics_strip(
         [
             {
@@ -454,6 +451,11 @@ if page == "今日信号与风控":
                 "value": f"¥{total_eq:,.0f}",
                 "sub": f"累计 {pnl:+,.0f} ({pnl_pct:+.2%})",
                 "value_class": "val-up" if pnl > 0 else ("val-down" if pnl < 0 else ""),
+            },
+            {
+                "label": "仓位 / 可用现金",
+                "value": f"{(mkt_val / total_eq):.0%}" if total_eq > 0 else "0%",
+                "sub": f"现金 ¥{account.cash:,.0f}",
             },
             {
                 "label": "今日调仓指令",
@@ -466,12 +468,6 @@ if page == "今日信号与风控":
                 "value": f"{near_stop_cnt} 只",
                 "sub": f"持仓 {len(positions)} 只 · 阈值 <2.5%",
                 "value_class": "val-warn" if near_stop_cnt > 0 else "",
-            },
-            {
-                "label": "数据源健康",
-                "value": "正常" if fail_cnt == 0 else f"{fail_cnt} 异常",
-                "sub": f"同步至 {latest_mkt_date}",
-                "value_class": "val-down" if fail_cnt == 0 else "val-up",
             },
         ]
     )
@@ -592,88 +588,63 @@ if page == "今日信号与风控":
             )
         st.plotly_chart(_style_plotly(fig_live, "实盘净值走势 vs 沪深300", "净值 (起点=1.0)", height=320), use_container_width=True)
 
-    _render_section_head("持仓动态止损监控", "TRAILING STOP CUSHION")
-    if not positions:
-        st.caption("当前账本为空仓状态。在「持仓与资金账本」录入实际成交后，这里将实时追踪每只 ETF 的移动止损安全垫。")
-    else:
-        pos_rows: list[dict[str, Any]] = []
-        for sym, pos in positions.items():
-            px = latest_prices.get(sym, pos.avg_cost)
-            pnl_r = (px / pos.avg_cost - 1.0) if pos.avg_cost > 0 else 0.0
-            cushion = (px / pos.stop_loss_price - 1.0) if (pos.stop_loss_price and pos.stop_loss_price > 0) else None
-            pos_rows.append(
-                {
-                    "标的": _fmt_symbol(sym),
-                    "份额": pos.shares,
-                    "市值(¥)": round(pos.shares * px, 2),
-                    "成本价": round(pos.avg_cost, 4),
-                    "最新价": round(px, 4),
-                    "浮盈亏%": round(pnl_r * 100, 2),
-                    "止损线": round(pos.stop_loss_price, 4) if pos.stop_loss_price else None,
-                    "安全垫%": round(cushion * 100, 2) if cushion is not None else None,
-                }
+    _render_section_head("持仓与资金账本", "POSITIONS · LEDGER · TRAILING STOP")
+    tab_pos, tab_entry, tab_hist = st.tabs(["持仓与动态止损", "录入成交 / 出入金", "历史流水"])
+
+    with tab_pos:
+        col_tbl, col_pie = st.columns([1.65, 1])
+        with col_tbl:
+            if not positions:
+                st.caption("当前为空仓状态。在右侧「录入成交 / 出入金」记入实际成交后，此处将实时追踪每只 ETF 的动态止损安全垫。")
+            else:
+                pos_rows: list[dict[str, Any]] = []
+                for sym, pos in positions.items():
+                    px = latest_prices.get(sym, pos.avg_cost)
+                    pnl_r = (px / pos.avg_cost - 1.0) if pos.avg_cost > 0 else 0.0
+                    cushion = (px / pos.stop_loss_price - 1.0) if (pos.stop_loss_price and pos.stop_loss_price > 0) else None
+                    pos_rows.append(
+                        {
+                            "标的": _fmt_symbol(sym),
+                            "份额": pos.shares,
+                            "市值(¥)": round(pos.shares * px, 2),
+                            "成本价": round(pos.avg_cost, 4),
+                            "最新价": round(px, 4),
+                            "浮盈亏%": round(pnl_r * 100, 2),
+                            "止损线": round(pos.stop_loss_price, 4) if pos.stop_loss_price else None,
+                            "安全垫%": round(cushion * 100, 2) if cushion is not None else None,
+                        }
+                    )
+                st.dataframe(
+                    pd.DataFrame(pos_rows),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "浮盈亏%": st.column_config.NumberColumn(format="%.2f%%"),
+                        "安全垫%": st.column_config.ProgressColumn(min_value=0.0, max_value=15.0, format="%.2f%%"),
+                    },
+                )
+
+        with col_pie:
+            alloc = [{"资产": "可用现金", "金额": account.cash}]
+            for sym, pos in positions.items():
+                alloc.append({"资产": _fmt_symbol(sym), "金额": pos.shares * latest_prices.get(sym, pos.avg_cost)})
+            alloc_df = pd.DataFrame(alloc)
+            fig_pie = px.pie(
+                alloc_df,
+                names="资产",
+                values="金额",
+                hole=0.58,
+                color_discrete_sequence=CHART_PALETTE,
             )
-        st.dataframe(
-            pd.DataFrame(pos_rows),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "浮盈亏%": st.column_config.NumberColumn(format="%.2f%%"),
-                "安全垫%": st.column_config.ProgressColumn(min_value=0.0, max_value=15.0, format="%.2f%%"),
-            },
-        )
-
-
-# ==============================================================================
-# Page 2: Ledger & Position Management (Tabbed Progressive Disclosure)
-# ==============================================================================
-elif page == "持仓与资金账本":
-    _render_page_header("持仓与资金账本", "PERSISTED LEDGER · TRAILING STOP")
-
-    account = ledger.get_account()
-    positions = ledger.get_positions()
-    total_eq = ledger.total_equity(latest_prices)
-    mkt_val = total_eq - account.cash
-    pnl = total_eq - account.initial_capital
-    pnl_pct = (pnl / account.initial_capital) if account.initial_capital > 0 else 0.0
-
-    _render_metrics_strip(
-        [
-            {"label": "账户总资产", "value": f"¥{total_eq:,.0f}", "sub": f"初始本金 ¥{account.initial_capital:,.0f}"},
-            {"label": "持仓市值", "value": f"¥{mkt_val:,.0f}", "sub": f"仓位 {(mkt_val / total_eq):.1%}" if total_eq > 0 else "0%"},
-            {"label": "可用现金", "value": f"¥{account.cash:,.0f}", "sub": f"现金 {(account.cash / total_eq):.1%}" if total_eq > 0 else "0%"},
-            {
-                "label": "累计盈亏",
-                "value": f"¥{pnl:+,.0f}",
-                "sub": f"收益率 {pnl_pct:+.2%}",
-                "value_class": "val-up" if pnl > 0 else ("val-down" if pnl < 0 else ""),
-            },
-        ]
-    )
-
-    tab_alloc, tab_entry, tab_hist = st.tabs(["资产分布", "录入成交 / 出入金", "历史流水"])
-
-    with tab_alloc:
-        alloc = [{"资产": "可用现金", "金额": account.cash}]
-        for sym, pos in positions.items():
-            alloc.append({"资产": _fmt_symbol(sym), "金额": pos.shares * latest_prices.get(sym, pos.avg_cost)})
-        alloc_df = pd.DataFrame(alloc)
-        fig_pie = px.pie(
-            alloc_df,
-            names="资产",
-            values="金额",
-            hole=0.58,
-            color_discrete_sequence=CHART_PALETTE,
-        )
-        fig_pie.update_traces(textfont={"color": "#ECEEF2", "family": "IBM Plex Mono"})
-        fig_pie.update_layout(
-            template="plotly_dark",
-            height=340,
-            margin={"l": 16, "r": 16, "t": 24, "b": 24},
-            paper_bgcolor="#14161B",
-            legend={"font": {"color": "#98A0AE"}},
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
+            fig_pie.update_traces(textfont={"color": "#ECEEF2", "family": "IBM Plex Mono"})
+            fig_pie.update_layout(
+                template="plotly_dark",
+                height=280,
+                margin={"l": 10, "r": 10, "t": 16, "b": 16},
+                paper_bgcolor="#14161B",
+                legend={"font": {"color": "#98A0AE", "size": 11}},
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
 
     with tab_entry:
         if not can_write:
@@ -707,18 +678,17 @@ elif page == "持仓与资金账本":
                     st.rerun()
 
     with tab_hist:
-        df_trades = storage.load_trades(limit=100)
-        if df_trades.empty:
+        if df_live_trades.empty:
             st.caption("暂无成交流水记录。")
         else:
-            st.dataframe(df_trades, use_container_width=True, hide_index=True)
+            st.dataframe(df_live_trades, use_container_width=True, hide_index=True)
 
 
 # ==============================================================================
-# Page 4: Data Source Health Monitor
+# Page 2: System Status & Data Source Health
 # ==============================================================================
-elif page == "数据源健康监控":
-    _render_page_header("数据源健康监控", "AKSHARE PRIMARY · BAOSTOCK FALLBACK")
+elif page == "系统状态":
+    _render_page_header("系统与数据源状态", "AKSHARE PRIMARY · BAOSTOCK FALLBACK")
 
     df_health = _cached_health_logs(storage.backend_name)
     if df_health.empty:
