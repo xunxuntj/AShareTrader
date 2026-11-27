@@ -1,0 +1,74 @@
+name: AShareTrader Daily Signal & EOD Archive
+
+on:
+  schedule:
+    # 14:35 Beijing Time (UTC 06:35), Mon-Fri -> Intraday tail signal + Feishu alert
+    - cron: "35 6 * * 1-5"
+    # 16:30 Beijing Time (UTC 08:30), Mon-Fri -> Official EOD archive + backtest snapshot
+    - cron: "30 8 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode: intraday or eod"
+        required: true
+        default: "intraday"
+        type: choice
+        options:
+          - intraday
+          - eod
+      force_notify:
+        description: "Force send Feishu card even on EOD"
+        required: false
+        default: false
+        type: boolean
+      force_calendar:
+        description: "Bypass A-Share trading calendar check"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  run-signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -e . --no-deps
+
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run_mode=${{ github.event.inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "30 8 * * 1-5" ]; then
+            echo "run_mode=eod" >> $GITHUB_OUTPUT
+          else
+            echo "run_mode=intraday" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Execute AShareTrader Daily Pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+        run: |
+          ARGS="--mode ${{ steps.mode.outputs.run_mode }} --send-feishu"
+          if [ "${{ github.event.inputs.force_notify }}" = "true" ]; then
+            ARGS="$ARGS --force-notify"
+          fi
+          if [ "${{ github.event.inputs.force_calendar }}" = "true" ]; then
+            ARGS="$ARGS --force"
+          fi
+          python -m ashare_trader.cli daily-run $ARGS

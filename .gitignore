@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Environment secrets
+.env
+.streamlit/secrets.toml
+
+# Local offline cache & temporary outputs
+data/
+reports/
+*.sqlite
+*.db
+*.parquet
+*.log
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

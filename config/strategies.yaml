@@ -1,0 +1,58 @@
+# Finalized Strategy Configuration (Phase 1 Approved: Opt 3 - 100% TrendATR live)
+# RiskParity and MomentumR2 remain enabled for side-by-side dashboard backtest comparison.
+
+backtest:
+  initial_capital: 100000.0
+  commission_rate: 0.0001       # 0.01% (万1) ETF commission
+  min_commission: 0.0           # 0.0 for zero-minimum ETF accounts, or 5.0
+  stamp_duty_rate: 0.0          # ETFs are exempt from A-Share stamp duty
+  slippage_rate: 0.0005         # 0.05% one-way slippage
+  lot_size: 100                 # A-Share 100-share integer lot
+  execution_timing: "close"     # "close" (14:35 intraday execution) or "next_open"
+  limit_move_threshold: 0.098   # Skip buying limit-up / selling limit-down (>=9.8%)
+  rebalance_threshold: 0.03     # Ignore weight drift smaller than 3%
+
+risk:
+  atr_window: 14
+  trailing_stop_atr_mult: 2.5   # Dynamic trailing stop = highest - 2.5 * ATR
+  hard_stop_pct: 0.08           # Hard stop-loss cap at -8% from peak if ATR unavailable
+  portfolio_dd_reduce: 0.12     # Cut risky exposure by 50% if portfolio drawdown > 12%
+  portfolio_dd_recover: 0.06    # Restore full exposure once drawdown recovers < 6%
+
+strategies:
+  momentum_r2:
+    enabled: true               # Kept for dashboard benchmark comparison; live weight = 0.0
+    lookback: 25
+    ma_filter: 20
+    top_k: 2
+    min_score: 0.0
+    switch_buffer: 0.15
+    rebalance_freq: "D"
+    min_history_days: 60
+
+  trend_atr:
+    enabled: true               # Primary live strategy (100% weight)
+    breakout_window: 20
+    ema_fast: 10
+    ema_slow: 30
+    atr_window: 14
+    atr_stop_mult: 2.5
+    max_single_weight: 0.35
+    min_history_days: 60
+
+  risk_parity:
+    enabled: true               # Kept for dashboard benchmark comparison; live weight = 0.0
+    vol_window: 60
+    mom_window: 20
+    tilt_high: 1.25
+    tilt_low: 0.75
+    target_vol: 0.10
+    max_leverage: 1.0
+    rebalance_interval_days: 10
+    min_history_days: 65
+
+combiner:
+  weights:
+    momentum_r2: 0.00
+    trend_atr: 1.00
+    risk_parity: 0.00
