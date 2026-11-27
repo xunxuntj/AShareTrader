@@ -42,6 +42,29 @@ def build_default_strategies(
     return strategies, combined
 
 
+def compute_suggested_shares(
+    action: str,
+    target_weight: float,
+    current_shares: int,
+    total_equity: float,
+    ref_price: float | None,
+    lot_size: int = 100,
+) -> int:
+    """Compute actionable A-Share lot-rounded shares consistent across Feishu and Web UI."""
+    if ref_price is None or ref_price <= 0 or total_equity <= 0:
+        return 0
+    if action == "SELL" and target_weight <= 1e-4:
+        return int(current_shares)
+    cur_weight = (current_shares * ref_price) / total_equity
+    diff_w = target_weight - cur_weight
+    if action == "BUY" and diff_w > 0:
+        return int((total_equity * diff_w / ref_price) // lot_size) * lot_size
+    if action == "SELL" and diff_w < 0:
+        qty = int((total_equity * abs(diff_w) / ref_price) // lot_size) * lot_size
+        return min(int(current_shares), qty) if current_shares > 0 else qty
+    return 0
+
+
 def run_daily_signal(
     storage: StorageBackend,
     universe: UniverseConfig,

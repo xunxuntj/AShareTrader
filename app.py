@@ -25,7 +25,7 @@ from ashare_trader.config_loader import (
 from ashare_trader.data.calendar import cn_today
 from ashare_trader.data.manager import DataManager
 from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
-from ashare_trader.execution.signal_runner import run_daily_signal
+from ashare_trader.execution.signal_runner import compute_suggested_shares, run_daily_signal
 from ashare_trader.notify.feishu import FeishuNotifier
 from ashare_trader.storage.factory import create_storage
 
@@ -489,23 +489,43 @@ if page == "交易终端":
             act = str(row["action"])
             sym = str(row["symbol"])
             w_tgt = float(row["target_weight"])
-            ref_px = row.get("ref_price")
+            ref_px_raw = row.get("ref_price")
+            ref_px = float(ref_px_raw) if pd.notna(ref_px_raw) else latest_prices.get(sym)
             stop_px = row.get("stop_loss_price")
             reason = str(row.get("reason") or "按模型目标权重执行")
             pill_cls = {"BUY": "pill-buy", "SELL": "pill-sell"}.get(act, "pill-hold")
-            pill_txt = {"BUY": "BUY 买入", "SELL": "SELL 卖出"}.get(act, "HOLD 持有")
-            ref_str = f"参考价 {float(ref_px):.3f}" if pd.notna(ref_px) else "参考价 —"
+            pill_txt = {"BUY": "BUY 买入/加仓", "SELL": "SELL 卖出/减仓"}.get(act, "HOLD 持有")
+            ref_str = f"参考价 {ref_px:.3f}" if ref_px is not None else "参考价 —"
             stop_str = f"止损线 {float(stop_px):.3f}" if pd.notna(stop_px) and float(stop_px) > 0 else "避险底仓"
+
+            cur_sh = positions[sym].shares if sym in positions else 0
+            sugg_sh = compute_suggested_shares(
+                action=act,
+                target_weight=w_tgt,
+                current_shares=cur_sh,
+                total_equity=total_eq,
+                ref_price=ref_px,
+                lot_size=bt_cfg.lot_size,
+            )
+            if act in ("BUY", "SELL") and sugg_sh > 0 and ref_px:
+                est_amt = sugg_sh * ref_px
+                top_right = (
+                    f'<span class="val-gold">建议 {sugg_sh:,} 份</span>'
+                    f'<span style="color:#98A0AE;font-weight:400;font-size:0.84rem;"> (约 ¥{est_amt:,.0f})</span>'
+                    f' · 目标仓位 {w_tgt:.1%}'
+                )
+            else:
+                top_right = f'目标仓位 {w_tgt:.1%}'
 
             rows_html.append(
                 f'<div class="blotter-row">'
                 f'<div style="min-width:220px;flex:1;">'
                 f'<span class="pill {pill_cls}">{pill_txt}</span>'
                 f'<span style="margin-left:0.65rem;font-weight:600;font-size:0.98rem;color:#ECEEF2;">{_fmt_symbol(sym)}</span>'
-                f'<div style="font-size:0.82rem;color:#98A0AE;margin-top:0.35rem;">{reason}</div>'
+                f'<div style="font-size:0.82rem;color:#98A0AE;margin-top:0.35rem;">理由：{reason}</div>'
                 f'</div>'
                 f'<div style="text-align:right;white-space:nowrap;">'
-                f'<div class="mono" style="font-size:1.05rem;font-weight:600;color:#ECEEF2;">目标 {w_tgt:.1%}</div>'
+                f'<div class="mono" style="font-size:1.02rem;font-weight:600;color:#ECEEF2;">{top_right}</div>'
                 f'<div class="mono" style="font-size:0.76rem;color:#98A0AE;margin-top:0.2rem;">{ref_str} · {stop_str}</div>'
                 f'</div>'
                 f'</div>'
