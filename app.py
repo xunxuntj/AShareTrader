@@ -285,15 +285,23 @@ def _fmt_symbol(sym: str) -> str:
     return f"{a.name} ({sym})" if a else sym
 
 
-def _style_plotly(fig: go.Figure, title: str, y_title: str) -> go.Figure:
+def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
-        title={"text": title, "font": {"size": 14, "color": "#F8FAFC"}, "x": 0.0, "xanchor": "left"},
+        height=height,
+        title={"text": title, "font": {"size": 14, "color": "#F8FAFC"}, "x": 0.0, "xanchor": "left", "y": 0.96},
         yaxis_title=y_title,
         xaxis_title=None,
         hovermode="x unified",
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "right", "x": 1.0, "font": {"color": "#CBD5E1"}},
-        margin={"l": 16, "r": 16, "t": 54, "b": 24},
+        legend={
+            "orientation": "h",
+            "yanchor": "top",
+            "y": -0.16,
+            "xanchor": "center",
+            "x": 0.5,
+            "font": {"color": "#CBD5E1", "size": 11},
+        },
+        margin={"l": 16, "r": 16, "t": 46, "b": 60},
         paper_bgcolor="#111827",
         plot_bgcolor="#111827",
         font={"family": "Inter, sans-serif", "size": 12, "color": "#CBD5E1"},
@@ -406,7 +414,7 @@ if page == "今日信号与风控":
                 "label": "账户总资产",
                 "value": f"¥{total_eq:,.0f}",
                 "sub": f"累计 {pnl:+,.0f} ({pnl_pct:+.2%})",
-                "value_class": "val-up" if pnl >= 0 else "val-down",
+                "value_class": "val-up" if pnl > 0 else ("val-down" if pnl < 0 else ""),
             },
             {
                 "label": "今日调仓指令",
@@ -428,9 +436,9 @@ if page == "今日信号与风控":
         ]
     )
 
-    act_c1, act_c2, _ = st.columns([1.6, 1.6, 2.8])
+    act_c1, act_c2, _ = st.columns([1.8, 1.8, 2.4])
     with act_c1:
-        if st.button("立即重算最新信号", type="primary", use_container_width=True):
+        if st.button("重算最新信号", type="primary", use_container_width=True):
             try:
                 instructions, _ = run_daily_signal(
                     storage=storage,
@@ -531,9 +539,9 @@ elif page == "多策略回测对比":
 
     def_w = strat_cfg.get("combiner", {}).get("weights", {})
     with st.container(border=True):
-        r1_c1, r1_c2, _ = st.columns([1.6, 1.4, 2.0])
-        start_dt = r1_c1.date_input("自定义回测起始日", value=date(2019, 1, 1))
-        run_btn = r1_c2.button("运行自定义回测", type="primary", use_container_width=True)
+        r1_c1, r1_c2, _ = st.columns([1.8, 1.6, 1.6])
+        start_dt = r1_c1.date_input("回测起始日", value=date(2019, 1, 1))
+        run_btn = r1_c2.button("运行回测", type="primary", use_container_width=True)
 
         r2_c1, r2_c2, r2_c3 = st.columns(3)
         w_trd = r2_c1.slider("TrendATR 权重", 0.0, 1.0, float(def_w.get("trend_atr", 1.0)), 0.05)
@@ -620,50 +628,47 @@ elif page == "多策略回测对比":
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         if eq_curves:
-            ch1, ch2 = st.columns(2)
-            with ch1:
-                fig_eq = go.Figure()
-                for idx, (name, s_eq) in enumerate(eq_curves.items()):
-                    norm_eq = s_eq / s_eq.iloc[0]
-                    fig_eq.add_trace(
-                        go.Scatter(
-                            x=norm_eq.index,
-                            y=norm_eq.values,
-                            mode="lines",
-                            name=name,
-                            line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 2.6 if name == "combined" else 1.5},
-                        )
+            fig_eq = go.Figure()
+            for idx, (name, s_eq) in enumerate(eq_curves.items()):
+                norm_eq = s_eq / s_eq.iloc[0]
+                fig_eq.add_trace(
+                    go.Scatter(
+                        x=norm_eq.index,
+                        y=norm_eq.values,
+                        mode="lines",
+                        name=name,
+                        line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 2.6 if name == "combined" else 1.5},
                     )
-                if bm_curve is not None:
-                    norm_bm = bm_curve / bm_curve.iloc[0]
-                    fig_eq.add_trace(
-                        go.Scatter(
-                            x=norm_bm.index,
-                            y=norm_bm.values,
-                            mode="lines",
-                            name="沪深300基准",
-                            line={"color": "#64748B", "width": 1.4, "dash": "dot"},
-                        )
+                )
+            if bm_curve is not None:
+                norm_bm = bm_curve / bm_curve.iloc[0]
+                fig_eq.add_trace(
+                    go.Scatter(
+                        x=norm_bm.index,
+                        y=norm_bm.values,
+                        mode="lines",
+                        name="沪深300基准",
+                        line={"color": "#64748B", "width": 1.4, "dash": "dot"},
                     )
-                st.plotly_chart(_style_plotly(fig_eq, "归一化净值曲线", "净值 (起点=1.0)"), use_container_width=True)
+                )
+            st.plotly_chart(_style_plotly(fig_eq, "归一化净值曲线", "净值 (起点=1.0)", height=360), use_container_width=True)
 
-            with ch2:
-                fig_dd = go.Figure()
-                for idx, (name, s_eq) in enumerate(eq_curves.items()):
-                    dd = (s_eq / s_eq.cummax() - 1.0) * 100.0
-                    fig_dd.add_trace(
-                        go.Scatter(
-                            x=dd.index,
-                            y=dd.values,
-                            mode="lines",
-                            name=name,
-                            line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 1.6},
-                        )
+            fig_dd = go.Figure()
+            for idx, (name, s_eq) in enumerate(eq_curves.items()):
+                dd = (s_eq / s_eq.cummax() - 1.0) * 100.0
+                fig_dd.add_trace(
+                    go.Scatter(
+                        x=dd.index,
+                        y=dd.values,
+                        mode="lines",
+                        name=name,
+                        line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 1.6},
                     )
-                st.plotly_chart(_style_plotly(fig_dd, "水下动态回撤 (%)", "回撤 (%)"), use_container_width=True)
+                )
+            st.plotly_chart(_style_plotly(fig_dd, "水下动态回撤 (%)", "回撤 (%)", height=320), use_container_width=True)
 
-            comb_eq = eq_curves.get("combined") or eq_curves.get("trend_atr")
-            if comb_eq is not None:
+            comb_eq = eq_curves["combined"] if "combined" in eq_curves else eq_curves.get("trend_atr")
+            if comb_eq is not None and not comb_eq.empty:
                 monthly = compute_monthly_returns(comb_eq)
                 if not monthly.empty:
                     fig_hm = px.imshow(
@@ -673,7 +678,7 @@ elif page == "多策略回测对比":
                         color_continuous_midpoint=0,
                         aspect="auto",
                     )
-                    st.plotly_chart(_style_plotly(fig_hm, "实盘组合月度收益率热力图 (%)", "年份"), use_container_width=True)
+                    st.plotly_chart(_style_plotly(fig_hm, "实盘组合月度收益率热力图 (%)", "年份", height=360), use_container_width=True)
 
 
 # ==============================================================================
@@ -698,7 +703,7 @@ elif page == "持仓与资金账本":
                 "label": "累计净盈亏",
                 "value": f"¥{pnl:+,.0f}",
                 "sub": f"收益率 {pnl_pct:+.2%}",
-                "value_class": "val-up" if pnl >= 0 else "val-down",
+                "value_class": "val-up" if pnl > 0 else ("val-down" if pnl < 0 else ""),
             },
         ]
     )
@@ -771,7 +776,7 @@ elif page == "持仓与资金账本":
 # Page 4: Data Source Health Monitor
 # ==============================================================================
 elif page == "数据源健康监控":
-    _render_page_header("行情数据源健康状态监控", "DUAL-SOURCE: AKSHARE PRIMARY · BAOSTOCK FALLBACK")
+    _render_page_header("数据源健康监控", "DUAL-SOURCE: AKSHARE PRIMARY · BAOSTOCK FALLBACK")
 
     df_health = _cached_health_logs(storage.backend_name)
     if df_health.empty:
