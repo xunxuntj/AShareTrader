@@ -1,4 +1,4 @@
-"""AShareTrader Cloud Terminal — Dark Institutional Quant Dashboard (Streamlit + Supabase)."""
+"""AShareTrader Cloud Terminal — Impeccable Dark Quant UI (Streamlit + Supabase)."""
 
 from __future__ import annotations
 
@@ -33,36 +33,37 @@ from ashare_trader.research.validator import run_strategy_benchmark
 from ashare_trader.storage.factory import create_storage
 
 # ------------------------------------------------------------------------------
-# Page Config & Dark Institutional Terminal CSS
+# Page Config & Impeccable Dark Terminal Design System
 # ------------------------------------------------------------------------------
 st.set_page_config(
-    page_title="AShareTrader | 量化交易终端",
+    page_title="AShareTrader · 量化交易终端",
     page_icon="AT",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-DARK_CSS = """<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+IMPECCABLE_CSS = """<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-    --bg-canvas: #0B0F19;
-    --bg-card: #111827;
-    --bg-card-hover: #162033;
-    --border-subtle: #1F2937;
-    --border-strong: #334155;
-    --text-primary: #F8FAFC;
-    --text-secondary: #94A3B8;
-    --text-muted: #64748B;
-    --accent-blue: #3B82F6;
-    --cn-up: #F87171;        /* A-Share dark mode: vibrant red = buy / positive */
-    --cn-down: #34D399;      /* A-Share dark mode: emerald green = sell / negative */
-    --warn-amber: #FBBF24;
+    --bg-canvas: #0D0E11;          /* Warm charcoal, never pure #000 */
+    --bg-surface: #14161B;         /* Elevated surface */
+    --bg-surface-2: #1B1E25;       /* Subtle interactive surface */
+    --hairline: #242830;           /* 1px crisp structural divider */
+    --hairline-strong: #323743;
+    --ink-primary: #ECEEF2;        /* High-contrast warm off-white */
+    --ink-secondary: #98A0AE;      /* Muted metadata */
+    --ink-tertiary: #656D7C;
+    --accent-gold: #D4A359;        /* Restraint financial amber accent */
+    --cn-up: #E05A5A;              /* A-Share positive / buy */
+    --cn-down: #36B37E;            /* A-Share negative / sell / healthy */
+    --warn: #E5A93C;
 }
 
 html, body, [class*="css"] {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-    color: var(--text-primary);
+    font-family: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    color: var(--ink-primary);
+    -webkit-font-smoothing: antialiased;
 }
 
 .stApp {
@@ -70,149 +71,188 @@ html, body, [class*="css"] {
 }
 
 .block-container {
-    padding-top: 1.5rem !important;
-    padding-bottom: 2.5rem !important;
-    max-width: 1400px;
+    padding-top: 1.8rem !important;
+    padding-bottom: 3rem !important;
+    max-width: 1320px;
 }
 #MainMenu, footer { visibility: hidden; }
 header[data-testid="stHeader"] { background: transparent; }
 
+/* Sidebar */
 section[data-testid="stSidebar"] {
-    background-color: #0F172A;
-    border-right: 1px solid var(--border-subtle);
+    background-color: var(--bg-surface);
+    border-right: 1px solid var(--hairline);
 }
-
 .brand-block {
-    padding: 0.2rem 0 0.9rem 0;
-    border-bottom: 1px solid var(--border-subtle);
-    margin-bottom: 0.9rem;
+    padding: 0.15rem 0 1.1rem 0;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 1rem;
+}
+.brand-kicker {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent-gold);
+    margin-bottom: 0.25rem;
 }
 .brand-title {
-    font-size: 1.18rem;
+    font-size: 1.25rem;
     font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--text-primary);
+    letter-spacing: -0.025em;
+    color: var(--ink-primary);
+    line-height: 1.2;
 }
 .brand-sub {
     font-size: 0.78rem;
-    color: var(--text-secondary);
-    margin-top: 0.25rem;
+    color: var(--ink-secondary);
+    margin-top: 0.28rem;
+}
+.sys-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--ink-secondary);
+    line-height: 1.75;
+}
+.sys-meta span {
+    color: var(--ink-primary);
 }
 
+/* Editorial Page Header (strong modular type hierarchy) */
 .page-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: baseline;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    border-bottom: 1px solid var(--border-subtle);
-    padding-bottom: 0.85rem;
-    margin-bottom: 1.25rem;
+    gap: 0.75rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 1.4rem;
 }
 .page-title {
-    font-size: 1.45rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--text-primary);
+    font-size: 1.7rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--ink-primary);
     margin: 0;
+    line-height: 1.2;
 }
 .page-meta {
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    font-family: 'JetBrains Mono', monospace;
-    background: #111827;
-    border: 1px solid var(--border-subtle);
-    padding: 0.25rem 0.6rem;
-    border-radius: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.76rem;
+    letter-spacing: 0.04em;
+    color: var(--ink-secondary);
 }
 
-.kpi-grid {
+/* Unified Metrics Strip (anti-slop alternative to 4 repetitive hero cards) */
+.metrics-strip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.9rem;
-    margin-bottom: 1.25rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    margin-bottom: 1.5rem;
+    overflow: hidden;
 }
 @media (max-width: 960px) {
-    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-.kpi-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: 10px;
-    padding: 1rem 1.15rem;
+.metric-cell {
+    padding: 1.05rem 1.25rem;
+    border-right: 1px solid var(--hairline);
 }
-.kpi-label {
-    font-size: 0.74rem;
-    font-weight: 600;
+.metric-cell:last-child {
+    border-right: none;
+}
+.metric-label {
+    font-size: 0.72rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-secondary);
-    margin-bottom: 0.4rem;
+    color: var(--ink-secondary);
+    margin-bottom: 0.45rem;
 }
-.kpi-value {
-    font-family: 'JetBrains Mono', monospace;
+.metric-value {
+    font-family: 'IBM Plex Mono', monospace;
     font-variant-numeric: tabular-nums;
-    font-size: 1.42rem;
+    font-size: 1.48rem;
     font-weight: 600;
-    color: var(--text-primary);
+    letter-spacing: -0.02em;
+    color: var(--ink-primary);
     white-space: nowrap;
-    line-height: 1.25;
+    line-height: 1.2;
 }
-.kpi-sub {
-    font-size: 0.78rem;
-    color: var(--text-secondary);
+.metric-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.76rem;
+    color: var(--ink-secondary);
     margin-top: 0.35rem;
-    font-family: 'JetBrains Mono', monospace;
 }
 .val-up { color: var(--cn-up); }
 .val-down { color: var(--cn-down); }
-.val-warn { color: var(--warn-amber); }
+.val-warn { color: var(--warn); }
+.val-gold { color: var(--accent-gold); }
 
-.signal-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-left: 4px solid #64748B;
-    border-radius: 8px;
-    padding: 0.95rem 1.15rem;
-    margin-bottom: 0.7rem;
+/* Order Blotter (clean hairline rows, zero side-tab cliché) */
+.blotter {
+    background: var(--bg-surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+}
+.blotter-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
     gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--hairline);
+    transition: background-color 140ms ease;
 }
-.signal-buy { border-left-color: var(--cn-up); }
-.signal-sell { border-left-color: var(--cn-down); }
-.signal-hold { border-left-color: #64748B; }
+.blotter-row:last-child { border-bottom: none; }
+.blotter-row:hover { background-color: var(--bg-surface-2); }
 
-.badge {
+.pill {
     display: inline-block;
-    padding: 0.18rem 0.55rem;
-    border-radius: 5px;
-    font-size: 0.72rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
     font-weight: 600;
-    letter-spacing: 0.03em;
-    font-family: 'JetBrains Mono', monospace;
+    letter-spacing: 0.06em;
+    padding: 0.16rem 0.5rem;
+    border-radius: 4px;
+    vertical-align: middle;
 }
-.badge-buy { background: rgba(248, 113, 113, 0.15); color: #FCA5A5; border: 1px solid rgba(248, 113, 113, 0.35); }
-.badge-sell { background: rgba(52, 211, 153, 0.15); color: #6EE7B7; border: 1px solid rgba(52, 211, 153, 0.35); }
-.badge-hold { background: rgba(148, 163, 184, 0.15); color: #CBD5E1; border: 1px solid rgba(148, 163, 184, 0.3); }
+.pill-buy { background: rgba(224, 90, 90, 0.14); color: #F28B8B; }
+.pill-sell { background: rgba(54, 179, 126, 0.14); color: #67D4A6; }
+.pill-hold { background: rgba(152, 160, 174, 0.14); color: #C2C8D4; }
 
-.mono-num {
-    font-family: 'JetBrains Mono', monospace;
+.section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 1.5rem 0 0.75rem 0;
+}
+.section-title {
+    font-size: 0.96rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--ink-primary);
+}
+.section-note {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--ink-tertiary);
+}
+.mono {
+    font-family: 'IBM Plex Mono', monospace;
     font-variant-numeric: tabular-nums;
 }
-.section-label {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 1.25rem 0 0.65rem 0;
-    letter-spacing: -0.01em;
-}
 </style>"""
-st.markdown(DARK_CSS, unsafe_allow_html=True)
+st.markdown(IMPECCABLE_CSS, unsafe_allow_html=True)
 
-CHART_PALETTE = ["#3B82F6", "#34D399", "#FBBF24", "#A78BFA", "#94A3B8"]
+CHART_PALETTE = ["#D4A359", "#36B37E", "#60A5FA", "#C084FC", "#7E8796"]
 
 
 def _inject_secrets_to_env() -> None:
@@ -227,9 +267,9 @@ def _check_write_auth() -> bool:
         return True
     if st.session_state.get("write_unlocked", False):
         return True
-    with st.sidebar.expander("写操作鉴权（当前只读）"):
+    with st.sidebar.expander("写操作鉴权 · 只读"):
         pwd = st.text_input("管理口令", type="password", key="pwd_input")
-        if st.button("验证解锁", use_container_width=True):
+        if st.button("解锁写入", use_container_width=True):
             if pwd == app_pwd:
                 st.session_state["write_unlocked"] = True
                 st.rerun()
@@ -289,7 +329,7 @@ def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -
     fig.update_layout(
         template="plotly_dark",
         height=height,
-        title={"text": title, "font": {"size": 14, "color": "#F8FAFC"}, "x": 0.0, "xanchor": "left", "y": 0.96},
+        title={"text": title, "font": {"size": 14, "color": "#ECEEF2", "family": "IBM Plex Sans"}, "x": 0.0, "xanchor": "left", "y": 0.96},
         yaxis_title=y_title,
         xaxis_title=None,
         hovermode="x unified",
@@ -299,28 +339,28 @@ def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -
             "y": -0.16,
             "xanchor": "center",
             "x": 0.5,
-            "font": {"color": "#CBD5E1", "size": 11},
+            "font": {"color": "#98A0AE", "size": 11, "family": "IBM Plex Mono"},
         },
-        margin={"l": 16, "r": 16, "t": 46, "b": 60},
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font={"family": "Inter, sans-serif", "size": 12, "color": "#CBD5E1"},
+        margin={"l": 16, "r": 16, "t": 48, "b": 60},
+        paper_bgcolor="#14161B",
+        plot_bgcolor="#14161B",
+        font={"family": "IBM Plex Sans, sans-serif", "size": 12, "color": "#98A0AE"},
     )
-    fig.update_xaxes(showgrid=False, linecolor="#1F2937", tickfont={"color": "#94A3B8"})
-    fig.update_yaxes(gridcolor="#1F2937", zerolinecolor="#334155", tickfont={"color": "#94A3B8"})
+    fig.update_xaxes(showgrid=False, linecolor="#242830", tickfont={"color": "#98A0AE", "family": "IBM Plex Mono"})
+    fig.update_yaxes(gridcolor="#1F232B", zerolinecolor="#323743", tickfont={"color": "#98A0AE", "family": "IBM Plex Mono"})
     return fig
 
 
-def _render_kpi_row(items: list[dict[str, str]]) -> None:
-    """Render zero-indentation HTML KPI grid (immune to CommonMark 4-space code block parsing)."""
-    parts = ['<div class="kpi-grid">']
+def _render_metrics_strip(items: list[dict[str, str]]) -> None:
+    """Render zero-indentation unified metrics strip."""
+    parts = ['<div class="metrics-strip">']
     for item in items:
         cls = item.get("value_class", "")
         parts.append(
-            f'<div class="kpi-card">'
-            f'<div class="kpi-label">{item["label"]}</div>'
-            f'<div class="kpi-value {cls}">{item["value"]}</div>'
-            f'<div class="kpi-sub">{item.get("sub", "")}</div>'
+            f'<div class="metric-cell">'
+            f'<div class="metric-label">{item["label"]}</div>'
+            f'<div class="metric-value {cls}">{item["value"]}</div>'
+            f'<div class="metric-sub">{item.get("sub", "")}</div>'
             f'</div>'
         )
     parts.append("</div>")
@@ -328,21 +368,25 @@ def _render_kpi_row(items: list[dict[str, str]]) -> None:
 
 
 def _render_page_header(title: str, meta: str) -> None:
-    html = (
-        f'<div class="page-header">'
-        f'<h1 class="page-title">{title}</h1>'
-        f'<div class="page-meta">{meta}</div>'
-        f'</div>'
+    st.markdown(
+        f'<div class="page-header"><h1 class="page-title">{title}</h1><div class="page-meta">{meta}</div></div>',
+        unsafe_allow_html=True,
     )
-    st.markdown(html, unsafe_allow_html=True)
+
+
+def _render_section_head(title: str, note: str = "") -> None:
+    st.markdown(
+        f'<div class="section-head"><div class="section-title">{title}</div><div class="section-note">{note}</div></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ------------------------------------------------------------------------------
-# Sidebar Navigation & System Status
+# Sidebar Navigation & Telemetry
 # ------------------------------------------------------------------------------
 panels = _cached_price_panels(tuple(all_syms), storage.backend_name)
 close_df = panels["close"]
-latest_mkt_date = close_df.index.max().strftime("%Y-%m-%d") if not close_df.empty else "无数据"
+latest_mkt_date = close_df.index.max().strftime("%Y-%m-%d") if not close_df.empty else "—"
 latest_prices: dict[str, float] = {
     sym: float(close_df[sym].dropna().iloc[-1])
     for sym in close_df.columns
@@ -351,25 +395,30 @@ latest_prices: dict[str, float] = {
 
 st.sidebar.markdown(
     '<div class="brand-block">'
+    '<div class="brand-kicker">QUANT TERMINAL</div>'
     '<div class="brand-title">AShareTrader</div>'
-    '<div class="brand-sub">跨资产 ETF 量化信号与风控终端</div>'
+    '<div class="brand-sub">跨资产 ETF 趋势与风控系统</div>'
     '</div>',
     unsafe_allow_html=True,
 )
 
 page = st.sidebar.radio(
-    "工作区",
+    "导航",
     ["今日信号与风控", "多策略回测对比", "持仓与资金账本", "数据源健康监控"],
     label_visibility="collapsed",
 )
 
-st.sidebar.divider()
-st.sidebar.caption("主策略：TrendATR (100%)")
-st.sidebar.caption(f"标的池：{len(universe.assets)} 风险 ETF + 1 避险")
-st.sidebar.caption(f"最新行情：{latest_mkt_date}")
-st.sidebar.caption(f"存储引擎：{storage.backend_name}")
+st.sidebar.markdown(
+    f'<div style="border-top:1px solid #242830;margin:1rem 0;padding-top:0.9rem;" class="sys-meta">'
+    f'主策略 <span>TrendATR 100%</span><br>'
+    f'标的池 <span>{len(universe.assets)} 风险 + 1 避险</span><br>'
+    f'最新日 <span>{latest_mkt_date}</span><br>'
+    f'数据库 <span>{storage.backend_name}</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
-if st.sidebar.button("刷新云端缓存", use_container_width=True):
+if st.sidebar.button("刷新云端数据", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
 
@@ -380,7 +429,7 @@ can_write = _check_write_auth()
 # Page 1: Today's Signal & Risk Monitor
 # ==============================================================================
 if page == "今日信号与风控":
-    _render_page_header("今日交易信号与风控监控", f"MARKET AS OF {latest_mkt_date}")
+    _render_page_header("今日交易信号与风控", f"AS OF {latest_mkt_date} · TREND-ATR")
 
     account = ledger.get_account()
     positions = ledger.get_positions()
@@ -398,17 +447,19 @@ if page == "今日信号与风控":
         ].copy()
 
     action_cnt = int(latest_batch["action"].isin(["BUY", "SELL"]).sum()) if not latest_batch.empty else 0
-    near_stop_cnt = 0
-    for sym, pos in positions.items():
-        px = latest_prices.get(sym, pos.avg_cost)
-        if pos.stop_loss_price and px > 0 and (px / pos.stop_loss_price - 1.0) < 0.025:
-            near_stop_cnt += 1
+    near_stop_cnt = sum(
+        1
+        for sym, pos in positions.items()
+        if pos.stop_loss_price
+        and latest_prices.get(sym, pos.avg_cost) > 0
+        and (latest_prices.get(sym, pos.avg_cost) / pos.stop_loss_price - 1.0) < 0.025
+    )
 
     df_h = _cached_health_logs(storage.backend_name)
     health_latest = df_h.drop_duplicates(subset=["symbol"], keep="first") if not df_h.empty else pd.DataFrame()
     fail_cnt = int((health_latest["status"] == "failed").sum()) if not health_latest.empty else 0
 
-    _render_kpi_row(
+    _render_metrics_strip(
         [
             {
                 "label": "账户总资产",
@@ -419,26 +470,64 @@ if page == "今日信号与风控":
             {
                 "label": "今日调仓指令",
                 "value": f"{action_cnt} 笔",
-                "sub": f"信号日 {latest_batch['signal_date'].iloc[0]}" if not latest_batch.empty else "等待首次计算",
+                "sub": f"信号日 {latest_batch['signal_date'].iloc[0]}" if not latest_batch.empty else "等待计算",
+                "value_class": "val-gold" if action_cnt > 0 else "",
             },
             {
-                "label": "止损临近预警",
+                "label": "止损预警",
                 "value": f"{near_stop_cnt} 只",
-                "sub": f"当前持仓 {len(positions)} 只 (阈值 <2.5%)",
+                "sub": f"持仓 {len(positions)} 只 · 阈值 <2.5%",
                 "value_class": "val-warn" if near_stop_cnt > 0 else "",
             },
             {
-                "label": "数据源状态",
+                "label": "数据源健康",
                 "value": "正常" if fail_cnt == 0 else f"{fail_cnt} 异常",
-                "sub": f"最新行情 {latest_mkt_date}",
+                "sub": f"同步至 {latest_mkt_date}",
                 "value_class": "val-down" if fail_cnt == 0 else "val-up",
             },
         ]
     )
 
-    act_c1, act_c2, _ = st.columns([1.8, 1.8, 2.4])
+    _render_section_head(
+        "执行指令清单",
+        f"MODE: {latest_batch['run_mode'].iloc[0].upper()}" if not latest_batch.empty else "NO SIGNAL",
+    )
+    if latest_batch.empty:
+        st.info("暂无落库信号，点击下方「重算信号」即可立即生成。")
+    else:
+        rows_html = ['<div class="blotter">']
+        for _, row in latest_batch.iterrows():
+            act = str(row["action"])
+            sym = str(row["symbol"])
+            w_tgt = float(row["target_weight"])
+            ref_px = row.get("ref_price")
+            stop_px = row.get("stop_loss_price")
+            reason = str(row.get("reason") or "按模型目标权重执行")
+            pill_cls = {"BUY": "pill-buy", "SELL": "pill-sell"}.get(act, "pill-hold")
+            pill_txt = {"BUY": "BUY 买入", "SELL": "SELL 卖出"}.get(act, "HOLD 持有")
+            ref_str = f"参考价 {float(ref_px):.3f}" if pd.notna(ref_px) else "参考价 —"
+            stop_str = f"止损线 {float(stop_px):.3f}" if pd.notna(stop_px) and float(stop_px) > 0 else "避险底仓"
+
+            rows_html.append(
+                f'<div class="blotter-row">'
+                f'<div style="min-width:220px;flex:1;">'
+                f'<span class="pill {pill_cls}">{pill_txt}</span>'
+                f'<span style="margin-left:0.65rem;font-weight:600;font-size:0.98rem;color:#ECEEF2;">{_fmt_symbol(sym)}</span>'
+                f'<div style="font-size:0.82rem;color:#98A0AE;margin-top:0.35rem;">{reason}</div>'
+                f'</div>'
+                f'<div style="text-align:right;white-space:nowrap;">'
+                f'<div class="mono" style="font-size:1.05rem;font-weight:600;color:#ECEEF2;">目标 {w_tgt:.1%}</div>'
+                f'<div class="mono" style="font-size:0.76rem;color:#98A0AE;margin-top:0.2rem;">{ref_str} · {stop_str}</div>'
+                f'</div>'
+                f'</div>'
+            )
+        rows_html.append("</div>")
+        st.markdown("".join(rows_html), unsafe_allow_html=True)
+
+    # Compact action bar beneath blotter
+    act_c1, act_c2, _ = st.columns([1.4, 1.6, 4.0])
     with act_c1:
-        if st.button("重算最新信号", type="primary", use_container_width=True):
+        if st.button("重算信号", type="primary", use_container_width=True):
             try:
                 instructions, _ = run_daily_signal(
                     storage=storage,
@@ -450,58 +539,25 @@ if page == "今日信号与风控":
                     persist=can_write,
                 )
                 st.cache_data.clear()
-                st.success(f"已完成计算（{len(instructions)} 条记录）")
+                st.success(f"已完成计算（{len(instructions)} 条）")
                 st.rerun()
             except Exception as exc:  # noqa: BLE001
-                st.error(f"信号计算失败：{exc}")
+                st.error(f"计算失败：{exc}")
     with act_c2:
         notifier = FeishuNotifier()
         if can_write and notifier.is_configured:
-            if st.button("发送飞书测试卡片", use_container_width=True):
+            if st.button("推送测试飞书", use_container_width=True):
                 try:
                     ins, lp = run_daily_signal(storage, universe, strat_cfg, run_mode="intraday", persist=False)
                     card = notifier.build_signal_card(ins, ledger.get_positions(), lp, asset_map, None, "intraday")
                     notifier.send_card(card)
-                    st.success("飞书测试卡片已发送")
+                    st.success("测试卡片已发送")
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"发送失败：{exc}")
 
-    st.markdown('<div class="section-label">目标仓位与操作清单</div>', unsafe_allow_html=True)
-    if latest_batch.empty:
-        st.info("数据库暂无信号记录。点击上方「立即重算最新信号」或等待定时任务执行。")
-    else:
-        for _, row in latest_batch.iterrows():
-            act = str(row["action"])
-            sym = str(row["symbol"])
-            w_tgt = float(row["target_weight"])
-            ref_px = row.get("ref_price")
-            stop_px = row.get("stop_loss_price")
-            reason = str(row.get("reason") or "按模型目标权重执行")
-            card_cls = {"BUY": "signal-buy", "SELL": "signal-sell"}.get(act, "signal-hold")
-            badge_cls = {"BUY": "badge-buy", "SELL": "badge-sell"}.get(act, "badge-hold")
-            badge_txt = {"BUY": "BUY 买入/加仓", "SELL": "SELL 卖出/清仓"}.get(act, "HOLD 维持")
-
-            ref_str = f"参考价 {float(ref_px):.3f}" if pd.notna(ref_px) else "参考价 —"
-            stop_str = f"止损线 {float(stop_px):.3f}" if pd.notna(stop_px) and float(stop_px) > 0 else "避险底仓"
-
-            card_html = (
-                f'<div class="signal-card {card_cls}">'
-                f'<div>'
-                f'<span class="badge {badge_cls}">{badge_txt}</span>'
-                f'<strong style="margin-left:0.6rem;font-size:0.98rem;color:#F8FAFC;">{_fmt_symbol(sym)}</strong>'
-                f'<div style="font-size:0.82rem;color:#94A3B8;margin-top:0.35rem;">{reason}</div>'
-                f'</div>'
-                f'<div style="text-align:right;white-space:nowrap;">'
-                f'<div class="mono-num" style="font-size:1.08rem;font-weight:600;color:#F8FAFC;">目标 {w_tgt:.1%}</div>'
-                f'<div class="mono-num" style="font-size:0.78rem;color:#94A3B8;margin-top:0.2rem;">{ref_str} · {stop_str}</div>'
-                f'</div>'
-                f'</div>'
-            )
-            st.markdown(card_html, unsafe_allow_html=True)
-
-    st.markdown('<div class="section-label">当前持仓动态止损安全垫</div>', unsafe_allow_html=True)
+    _render_section_head("持仓动态止损监控", "TRAILING STOP CUSHION")
     if not positions:
-        st.info("当前账本暂无持仓记录。可在「持仓与资金账本」页录入实盘成交以启用移动止损追踪。")
+        st.caption("当前账本为空仓状态。在「持仓与资金账本」录入实际成交后，这里将实时追踪每只 ETF 的移动止损安全垫。")
     else:
         pos_rows: list[dict[str, Any]] = []
         for sym, pos in positions.items():
@@ -511,12 +567,12 @@ if page == "今日信号与风控":
             pos_rows.append(
                 {
                     "标的": _fmt_symbol(sym),
-                    "持仓份额": pos.shares,
+                    "份额": pos.shares,
                     "市值(¥)": round(pos.shares * px, 2),
                     "成本价": round(pos.avg_cost, 4),
                     "最新价": round(px, 4),
                     "浮盈亏%": round(pnl_r * 100, 2),
-                    "动态止损价": round(pos.stop_loss_price, 4) if pos.stop_loss_price else None,
+                    "止损线": round(pos.stop_loss_price, 4) if pos.stop_loss_price else None,
                     "安全垫%": round(cushion * 100, 2) if cushion is not None else None,
                 }
             )
@@ -532,26 +588,24 @@ if page == "今日信号与风控":
 
 
 # ==============================================================================
-# Page 2: Multi-Strategy Backtest Comparison (Instant Snapshot + On-Demand Custom)
+# Page 2: Multi-Strategy Backtest Comparison (Progressive Disclosure)
 # ==============================================================================
 elif page == "多策略回测对比":
-    _render_page_header("多策略同口径回测对比", "NO-LOOKAHEAD · 100-LOT · SLIPPAGE 5BPS")
+    _render_page_header("多策略回测对比", "NO-LOOKAHEAD · 100-LOT · SLIPPAGE 5BPS")
 
     def_w = strat_cfg.get("combiner", {}).get("weights", {})
-    with st.container(border=True):
-        r1_c1, r1_c2, _ = st.columns([1.8, 1.6, 1.6])
-        start_dt = r1_c1.date_input("回测起始日", value=date(2019, 1, 1))
+    with st.expander("自定义权重与区间重算（默认展示云端预计算快照）", expanded=False):
+        r1_c1, r1_c2, _ = st.columns([1.6, 1.4, 3.0])
+        start_dt = r1_c1.date_input("起始日期", value=date(2019, 1, 1))
         run_btn = r1_c2.button("运行回测", type="primary", use_container_width=True)
-
         r2_c1, r2_c2, r2_c3 = st.columns(3)
-        w_trd = r2_c1.slider("TrendATR 权重", 0.0, 1.0, float(def_w.get("trend_atr", 1.0)), 0.05)
-        w_rp = r2_c2.slider("RiskParity 权重", 0.0, 1.0, float(def_w.get("risk_parity", 0.0)), 0.05)
-        w_mom = r2_c3.slider("MomentumR2 权重", 0.0, 1.0, float(def_w.get("momentum_r2", 0.0)), 0.05)
+        w_trd = r2_c1.slider("TrendATR", 0.0, 1.0, float(def_w.get("trend_atr", 1.0)), 0.05)
+        w_rp = r2_c2.slider("RiskParity", 0.0, 1.0, float(def_w.get("risk_parity", 0.0)), 0.05)
+        w_mom = r2_c3.slider("MomentumR2", 0.0, 1.0, float(def_w.get("momentum_r2", 0.0)), 0.05)
 
-    # On-demand custom run (only when user clicks button)
     if run_btn:
         if close_df.empty:
-            st.warning("存储中暂无行情数据，请先同步行情。")
+            st.warning("存储中暂无行情数据。")
         elif w_trd + w_rp + w_mom <= 0:
             st.error("组合总权重必须大于 0。")
         else:
@@ -560,7 +614,7 @@ elif page == "多策略回测对比":
                 "combiner": {"weights": {"momentum_r2": w_mom, "trend_atr": w_trd, "risk_parity": w_rp}},
             }
             strategies, combined = build_default_strategies(universe.safe_haven.symbol, cfg_copy)
-            with st.spinner("正在执行逐日无未来函数回测（约 15~30 秒）..."):
+            with st.spinner("正在执行逐日无未来函数回测..."):
                 results, summary_df = run_strategy_benchmark(
                     strategies=[*strategies, combined],
                     close_df=panels["close"],
@@ -573,35 +627,32 @@ elif page == "多策略回测对比":
                 )
             st.session_state["custom_bt"] = (results, summary_df)
 
-    # Render custom results if available, otherwise instant-load Supabase precomputed snapshots!
     if "custom_bt" in st.session_state:
         results, summary_df = st.session_state["custom_bt"]
-        st.caption("当前展示：自定义参数实时回测结果")
+        source_note = "CUSTOM RUN"
         eq_curves = {name: res.equity_curve for name, res in results.items()}
         bm_curve = next(iter(results.values())).benchmark_curve
-        yearly_df = results["combined"].yearly_metrics if "combined" in results else pd.DataFrame()
     else:
         snap_df = _cached_backtest_snapshots(storage.backend_name)
         eq_curves = {}
         bm_curve = None
-        yearly_df = pd.DataFrame()
         summary_rows: list[dict[str, Any]] = []
+        source_note = "PRECOMPUTED SNAPSHOT"
         if not snap_df.empty:
             latest_run_date = snap_df["run_date"].iloc[0]
+            source_note = f"SNAPSHOT {latest_run_date}"
             latest_snaps = snap_df[snap_df["run_date"] == latest_run_date].drop_duplicates(subset=["strategy_name"])
-            st.caption(f"当前展示：云端预计算快照（更新日期 {latest_run_date}）· 如需改权重请调整上方滑块并点击「运行自定义回测」")
             for _, row in latest_snaps.iterrows():
                 sname = str(row["strategy_name"])
                 m = row["metrics_json"] if isinstance(row["metrics_json"], dict) else json.loads(row["metrics_json"])
                 summary_rows.append({"strategy": sname, **m})
                 pts = row["equity_curve_json"] if isinstance(row["equity_curve_json"], list) else json.loads(row["equity_curve_json"])
                 if pts:
-                    s_eq = pd.Series(
+                    eq_curves[sname] = pd.Series(
                         [float(p["equity"]) for p in pts],
                         index=pd.DatetimeIndex([pd.Timestamp(p["date"]) for p in pts]),
                         name=sname,
                     )
-                    eq_curves[sname] = s_eq
             if eq_curves and universe.benchmark.symbol in close_df.columns:
                 ref_idx = next(iter(eq_curves.values())).index
                 bm_s = close_df[universe.benchmark.symbol].reindex(ref_idx).ffill().dropna()
@@ -610,8 +661,9 @@ elif page == "多策略回测对比":
         summary_df = pd.DataFrame(summary_rows)
 
     if summary_df.empty:
-        st.info("暂无云端回测快照。点击上方「运行自定义回测」即可生成。")
+        st.info("暂无云端回测快照，请展开上方自定义面板点击「运行回测」。")
     else:
+        _render_section_head("核心绩效指标", source_note)
         display_df = pd.DataFrame(
             {
                 "策略": summary_df["strategy"],
@@ -621,10 +673,9 @@ elif page == "多策略回测对比":
                 "夏普比": summary_df["sharpe"].map(lambda x: f"{float(x):.3f}"),
                 "索提诺": summary_df["sortino"].map(lambda x: f"{float(x):.3f}"),
                 "年化换手": summary_df["ann_turnover"].map(lambda x: f"{float(x):.1f}x"),
-                "累计手续费": summary_df["total_fees"].map(lambda x: f"¥{float(x):,.0f}"),
+                "手续费": summary_df["total_fees"].map(lambda x: f"¥{float(x):,.0f}"),
             }
         )
-        st.markdown('<div class="section-label">核心绩效对比表</div>', unsafe_allow_html=True)
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
         if eq_curves:
@@ -648,10 +699,10 @@ elif page == "多策略回测对比":
                         y=norm_bm.values,
                         mode="lines",
                         name="沪深300基准",
-                        line={"color": "#64748B", "width": 1.4, "dash": "dot"},
+                        line={"color": "#656D7C", "width": 1.3, "dash": "dot"},
                     )
                 )
-            st.plotly_chart(_style_plotly(fig_eq, "归一化净值曲线", "净值 (起点=1.0)", height=360), use_container_width=True)
+            st.plotly_chart(_style_plotly(fig_eq, "归一化净值曲线", "净值 (起点=1.0)", height=370), use_container_width=True)
 
             fig_dd = go.Figure()
             for idx, (name, s_eq) in enumerate(eq_curves.items()):
@@ -665,7 +716,7 @@ elif page == "多策略回测对比":
                         line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 1.6},
                     )
                 )
-            st.plotly_chart(_style_plotly(fig_dd, "水下动态回撤 (%)", "回撤 (%)", height=320), use_container_width=True)
+            st.plotly_chart(_style_plotly(fig_dd, "水下动态回撤 (%)", "回撤 (%)", height=310), use_container_width=True)
 
             comb_eq = eq_curves["combined"] if "combined" in eq_curves else eq_curves.get("trend_atr")
             if comb_eq is not None and not comb_eq.empty:
@@ -674,18 +725,18 @@ elif page == "多策略回测对比":
                     fig_hm = px.imshow(
                         monthly * 100,
                         text_auto=".1f",
-                        color_continuous_scale=["#065F46", "#1E293B", "#B91C1C"],
+                        color_continuous_scale=["#1D6F52", "#1B1E25", "#B84242"],
                         color_continuous_midpoint=0,
                         aspect="auto",
                     )
-                    st.plotly_chart(_style_plotly(fig_hm, "实盘组合月度收益率热力图 (%)", "年份", height=360), use_container_width=True)
+                    st.plotly_chart(_style_plotly(fig_hm, "实盘组合月度收益率热力图 (%)", "年份", height=350), use_container_width=True)
 
 
 # ==============================================================================
-# Page 3: Ledger & Position Management
+# Page 3: Ledger & Position Management (Tabbed Progressive Disclosure)
 # ==============================================================================
 elif page == "持仓与资金账本":
-    _render_page_header("实盘 / 模拟持仓与资金账本", "PERSISTED LEDGER · DYNAMIC TRAILING STOP")
+    _render_page_header("持仓与资金账本", "PERSISTED LEDGER · TRAILING STOP")
 
     account = ledger.get_account()
     positions = ledger.get_positions()
@@ -694,13 +745,13 @@ elif page == "持仓与资金账本":
     pnl = total_eq - account.initial_capital
     pnl_pct = (pnl / account.initial_capital) if account.initial_capital > 0 else 0.0
 
-    _render_kpi_row(
+    _render_metrics_strip(
         [
             {"label": "账户总资产", "value": f"¥{total_eq:,.0f}", "sub": f"初始本金 ¥{account.initial_capital:,.0f}"},
-            {"label": "持仓总市值", "value": f"¥{mkt_val:,.0f}", "sub": f"仓位占比 {(mkt_val / total_eq):.1%}" if total_eq > 0 else "0%"},
-            {"label": "可用现金", "value": f"¥{account.cash:,.0f}", "sub": f"现金占比 {(account.cash / total_eq):.1%}" if total_eq > 0 else "0%"},
+            {"label": "持仓市值", "value": f"¥{mkt_val:,.0f}", "sub": f"仓位 {(mkt_val / total_eq):.1%}" if total_eq > 0 else "0%"},
+            {"label": "可用现金", "value": f"¥{account.cash:,.0f}", "sub": f"现金 {(account.cash / total_eq):.1%}" if total_eq > 0 else "0%"},
             {
-                "label": "累计净盈亏",
+                "label": "累计盈亏",
                 "value": f"¥{pnl:+,.0f}",
                 "sub": f"收益率 {pnl_pct:+.2%}",
                 "value_class": "val-up" if pnl > 0 else ("val-down" if pnl < 0 else ""),
@@ -708,11 +759,33 @@ elif page == "持仓与资金账本":
         ]
     )
 
-    col_left, col_right = st.columns([1.35, 1])
-    with col_left:
-        st.markdown('<div class="section-label">录入成交 / 出入金</div>', unsafe_allow_html=True)
+    tab_alloc, tab_entry, tab_hist = st.tabs(["资产分布", "录入成交 / 出入金", "历史流水"])
+
+    with tab_alloc:
+        alloc = [{"资产": "可用现金", "金额": account.cash}]
+        for sym, pos in positions.items():
+            alloc.append({"资产": _fmt_symbol(sym), "金额": pos.shares * latest_prices.get(sym, pos.avg_cost)})
+        alloc_df = pd.DataFrame(alloc)
+        fig_pie = px.pie(
+            alloc_df,
+            names="资产",
+            values="金额",
+            hole=0.58,
+            color_discrete_sequence=CHART_PALETTE,
+        )
+        fig_pie.update_traces(textfont={"color": "#ECEEF2", "family": "IBM Plex Mono"})
+        fig_pie.update_layout(
+            template="plotly_dark",
+            height=340,
+            margin={"l": 16, "r": 16, "t": 24, "b": 24},
+            paper_bgcolor="#14161B",
+            legend={"font": {"color": "#98A0AE"}},
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with tab_entry:
         if not can_write:
-            st.info("当前为只读模式，请在左侧边栏输入管理口令解锁写入。")
+            st.info("当前为只读模式，请在左侧栏「写操作鉴权」输入管理口令后解锁。")
         else:
             with st.form("trade_form", border=True):
                 fc1, fc2, fc3 = st.columns(3)
@@ -724,7 +797,7 @@ elif page == "持仓与资金账本":
                 t_price = fc5.number_input("成交价 / 出入金额", min_value=0.0, step=0.01, value=1.0, format="%.4f")
                 t_fee = fc6.number_input("手续费 (¥)", min_value=0.0, step=0.1, value=0.0)
                 fc7, fc8 = st.columns([1, 2])
-                t_stop = fc7.number_input("初始止损价（0 表示自动）", min_value=0.0, step=0.01, value=0.0, format="%.4f")
+                t_stop = fc7.number_input("初始止损价（0 自动）", min_value=0.0, step=0.01, value=0.0, format="%.4f")
                 t_note = fc8.text_input("备注")
                 if st.form_submit_button("保存至数据库", type="primary", use_container_width=True):
                     ledger.record_execution(
@@ -741,46 +814,23 @@ elif page == "持仓与资金账本":
                     st.success("已持久化写入数据库")
                     st.rerun()
 
-    with col_right:
-        st.markdown('<div class="section-label">当前资产分布</div>', unsafe_allow_html=True)
-        alloc = [{"资产": "可用现金", "金额": account.cash}]
-        for sym, pos in positions.items():
-            alloc.append({"资产": _fmt_symbol(sym), "金额": pos.shares * latest_prices.get(sym, pos.avg_cost)})
-        alloc_df = pd.DataFrame(alloc)
-        fig_pie = px.pie(
-            alloc_df,
-            names="资产",
-            values="金额",
-            hole=0.55,
-            color_discrete_sequence=CHART_PALETTE,
-        )
-        fig_pie.update_traces(textfont={"color": "#F8FAFC"})
-        fig_pie.update_layout(
-            template="plotly_dark",
-            height=300,
-            margin={"l": 12, "r": 12, "t": 16, "b": 16},
-            paper_bgcolor="#111827",
-            legend={"font": {"color": "#CBD5E1"}},
-        )
-        st.plotly_chart(fig_pie, use_container_width=True)
-
-    st.markdown('<div class="section-label">历史成交流水</div>', unsafe_allow_html=True)
-    df_trades = storage.load_trades(limit=100)
-    if df_trades.empty:
-        st.caption("暂无成交流水记录。")
-    else:
-        st.dataframe(df_trades, use_container_width=True, hide_index=True)
+    with tab_hist:
+        df_trades = storage.load_trades(limit=100)
+        if df_trades.empty:
+            st.caption("暂无成交流水记录。")
+        else:
+            st.dataframe(df_trades, use_container_width=True, hide_index=True)
 
 
 # ==============================================================================
 # Page 4: Data Source Health Monitor
 # ==============================================================================
 elif page == "数据源健康监控":
-    _render_page_header("数据源健康监控", "DUAL-SOURCE: AKSHARE PRIMARY · BAOSTOCK FALLBACK")
+    _render_page_header("数据源健康监控", "AKSHARE PRIMARY · BAOSTOCK FALLBACK")
 
     df_health = _cached_health_logs(storage.backend_name)
     if df_health.empty:
-        st.info("暂无同步日志。运行 `sync-data` 或等待云端任务执行后将在此展示明细。")
+        st.info("暂无同步日志。")
     else:
         latest_per_sym = df_health.drop_duplicates(subset=["symbol"], keep="first").copy()
         latest_per_sym["标的"] = latest_per_sym["symbol"].map(_fmt_symbol)
@@ -789,28 +839,36 @@ elif page == "数据源健康监控":
         fail_n = int((latest_per_sym["status"] == "failed").sum())
         avg_lat = int(latest_per_sym["latency_ms"].mean()) if not latest_per_sym.empty else 0
 
-        _render_kpi_row(
+        _render_metrics_strip(
             [
                 {"label": "主源正常", "value": f"{ok_n}", "sub": "AKShare 直接命中", "value_class": "val-down"},
-                {"label": "备源降级", "value": f"{deg_n}", "sub": "Baostock 自动兜底", "value_class": "val-warn" if deg_n else ""},
-                {"label": "抓取失败", "value": f"{fail_n}", "sub": "需排查接口限流", "value_class": "val-up" if fail_n else ""},
-                {"label": "平均响应耗时", "value": f"{avg_lat} ms", "sub": "单标的同步延迟"},
+                {"label": "备源降级", "value": f"{deg_n}", "sub": "Baostock 兜底", "value_class": "val-warn" if deg_n else ""},
+                {"label": "抓取失败", "value": f"{fail_n}", "sub": "需排查限流", "value_class": "val-up" if fail_n else ""},
+                {"label": "平均耗时", "value": f"{avg_lat} ms", "sub": "单标的同步延迟"},
             ]
         )
 
+        # Horizontal bar chart: full Chinese ETF names remain crisp and legible
+        sorted_h = latest_per_sym.sort_values("latency_ms", ascending=True)
         fig_lat = go.Figure(
             go.Bar(
-                x=latest_per_sym["标的"],
-                y=latest_per_sym["latency_ms"],
+                y=sorted_h["标的"],
+                x=sorted_h["latency_ms"],
+                orientation="h",
                 marker_color=[
-                    "#34D399" if s == "ok" else ("#FBBF24" if s == "degraded" else "#F87171")
-                    for s in latest_per_sym["status"]
+                    "#36B37E" if s == "ok" else ("#E5A93C" if s == "degraded" else "#E05A5A")
+                    for s in sorted_h["status"]
                 ],
+                text=sorted_h["latency_ms"].map(lambda v: f"{int(v)} ms"),
+                textposition="outside",
+                textfont={"color": "#98A0AE", "family": "IBM Plex Mono", "size": 11},
             )
         )
-        st.plotly_chart(_style_plotly(fig_lat, "各标的最近一次同步耗时 (ms)", "耗时 (ms)"), use_container_width=True)
+        fig_lat = _style_plotly(fig_lat, "各标的最近一次同步耗时 (ms)", "", height=360)
+        fig_lat.update_layout(showlegend=False, margin={"l": 16, "r": 56, "t": 46, "b": 24})
+        st.plotly_chart(fig_lat, use_container_width=True)
 
-        st.markdown('<div class="section-label">标的同步状态明细</div>', unsafe_allow_html=True)
+        _render_section_head("同步状态明细", f"TOTAL {len(latest_per_sym)} ASSETS")
         st.dataframe(
             latest_per_sym[["标的", "last_trade_date", "source_used", "status", "latency_ms", "error_msg"]],
             use_container_width=True,
