@@ -25,11 +25,9 @@ from ashare_trader.config_loader import (
     load_universe,
 )
 from ashare_trader.data.manager import DataManager
-from ashare_trader.engine.metrics import compute_monthly_returns
 from ashare_trader.execution.ledger import LedgerService
-from ashare_trader.execution.signal_runner import build_default_strategies, run_daily_signal
+from ashare_trader.execution.signal_runner import run_daily_signal
 from ashare_trader.notify.feishu import FeishuNotifier
-from ashare_trader.research.validator import run_strategy_benchmark
 from ashare_trader.storage.factory import create_storage
 
 # ------------------------------------------------------------------------------
@@ -293,16 +291,10 @@ asset_map = universe.asset_map
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def _cached_price_panels(symbols_tuple: tuple[str, ...], backend_tag: str) -> dict[str, pd.DataFrame]:
+def _cached_close_panel(symbols_tuple: tuple[str, ...], backend_tag: str) -> pd.DataFrame:
     _ = backend_tag
     dm_local = DataManager(storage=create_storage())
-    syms = list(symbols_tuple)
-    return {
-        "close": dm_local.load_price_panel(syms, field="close"),
-        "high": dm_local.load_price_panel(syms, field="high"),
-        "low": dm_local.load_price_panel(syms, field="low"),
-        "open": dm_local.load_price_panel(syms, field="open"),
-    }
+    return dm_local.load_price_panel(list(symbols_tuple), field="close")
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -315,12 +307,6 @@ def _cached_latest_signals(backend_tag: str) -> pd.DataFrame:
 def _cached_health_logs(backend_tag: str) -> pd.DataFrame:
     _ = backend_tag
     return create_storage().load_latest_data_health(limit=120)
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _cached_backtest_snapshots(backend_tag: str) -> pd.DataFrame:
-    _ = backend_tag
-    return create_storage().load_latest_backtest_runs(limit=20)
 
 
 def _fmt_symbol(sym: str) -> str:
@@ -387,8 +373,7 @@ def _render_section_head(title: str, note: str = "") -> None:
 # ------------------------------------------------------------------------------
 # Sidebar Navigation & Telemetry
 # ------------------------------------------------------------------------------
-panels = _cached_price_panels(tuple(all_syms), storage.backend_name)
-close_df = panels["close"]
+close_df = _cached_close_panel(tuple(all_syms), storage.backend_name)
 latest_mkt_date = close_df.index.max().strftime("%Y-%m-%d") if not close_df.empty else "—"
 latest_prices: dict[str, float] = {
     sym: float(close_df[sym].dropna().iloc[-1])
@@ -407,7 +392,7 @@ st.sidebar.markdown(
 
 page = st.sidebar.radio(
     "导航",
-    ["今日信号与风控", "多策略回测对比", "持仓与资金账本", "数据源健康监控"],
+    ["今日信号与风控", "持仓与资金账本", "数据源健康监控"],
     label_visibility="collapsed",
 )
 
@@ -591,152 +576,7 @@ if page == "今日信号与风控":
 
 
 # ==============================================================================
-# Page 2: Multi-Strategy Backtest Comparison (Progressive Disclosure)
-# ==============================================================================
-elif page == "多策略回测对比":
-    _render_page_header("多策略回测对比", "NO-LOOKAHEAD · 100-LOT · SLIPPAGE 5BPS")
-
-    def_w = strat_cfg.get("combiner", {}).get("weights", {})
-    with st.expander("自定义权重与区间重算（默认展示云端预计算快照）", expanded=False):
-        r1_c1, r1_c2, _ = st.columns([1.6, 1.4, 3.0])
-        start_dt = r1_c1.date_input("起始日期", value=date(2019, 1, 1))
-        run_btn = r1_c2.button("运行回测", type="primary", use_container_width=True)
-        r2_c1, r2_c2, r2_c3 = st.columns(3)
-        w_trd = r2_c1.slider("TrendATR", 0.0, 1.0, float(def_w.get("trend_atr", 1.0)), 0.05)
-        w_rp = r2_c2.slider("RiskParity", 0.0, 1.0, float(def_w.get("risk_parity", 0.0)), 0.05)
-        w_mom = r2_c3.slider("MomentumR2", 0.0, 1.0, float(def_w.get("momentum_r2", 0.0)), 0.05)
-
-    if run_btn:
-        if close_df.empty:
-            st.warning("存储中暂无行情数据。")
-        elif w_trd + w_rp + w_mom <= 0:
-            st.error("组合总权重必须大于 0。")
-        else:
-            cfg_copy = {
-                **strat_cfg,
-                "combiner": {"weights": {"momentum_r2": w_mom, "trend_atr": w_trd, "risk_parity": w_rp}},
-            }
-            strategies, combined = build_default_strategies(universe.safe_haven.symbol, cfg_copy)
-            with st.spinner("正在执行逐日无未来函数回测..."):
-                results, summary_df = run_strategy_benchmark(
-                    strategies=[*strategies, combined],
-                    close_df=panels["close"],
-                    high_df=panels["high"],
-                    low_df=panels["low"],
-                    open_df=panels["open"],
-                    backtest_config=bt_cfg,
-                    start_date=start_dt.isoformat(),
-                    benchmark_symbol=universe.benchmark.symbol,
-                )
-            st.session_state["custom_bt"] = (results, summary_df)
-
-    if "custom_bt" in st.session_state:
-        results, summary_df = st.session_state["custom_bt"]
-        source_note = "CUSTOM RUN"
-        eq_curves = {name: res.equity_curve for name, res in results.items()}
-        bm_curve = next(iter(results.values())).benchmark_curve
-    else:
-        snap_df = _cached_backtest_snapshots(storage.backend_name)
-        eq_curves = {}
-        bm_curve = None
-        summary_rows: list[dict[str, Any]] = []
-        source_note = "PRECOMPUTED SNAPSHOT"
-        if not snap_df.empty:
-            latest_run_date = snap_df["run_date"].iloc[0]
-            source_note = f"SNAPSHOT {latest_run_date}"
-            latest_snaps = snap_df[snap_df["run_date"] == latest_run_date].drop_duplicates(subset=["strategy_name"])
-            for _, row in latest_snaps.iterrows():
-                sname = str(row["strategy_name"])
-                m = row["metrics_json"] if isinstance(row["metrics_json"], dict) else json.loads(row["metrics_json"])
-                summary_rows.append({"strategy": sname, **m})
-                pts = row["equity_curve_json"] if isinstance(row["equity_curve_json"], list) else json.loads(row["equity_curve_json"])
-                if pts:
-                    eq_curves[sname] = pd.Series(
-                        [float(p["equity"]) for p in pts],
-                        index=pd.DatetimeIndex([pd.Timestamp(p["date"]) for p in pts]),
-                        name=sname,
-                    )
-            if eq_curves and universe.benchmark.symbol in close_df.columns:
-                ref_idx = next(iter(eq_curves.values())).index
-                bm_s = close_df[universe.benchmark.symbol].reindex(ref_idx).ffill().dropna()
-                if not bm_s.empty:
-                    bm_curve = bm_s / bm_s.iloc[0] * bt_cfg.initial_capital
-        summary_df = pd.DataFrame(summary_rows)
-
-    if summary_df.empty:
-        st.info("暂无云端回测快照，请展开上方自定义面板点击「运行回测」。")
-    else:
-        _render_section_head("核心绩效指标", source_note)
-        display_df = pd.DataFrame(
-            {
-                "策略": summary_df["strategy"],
-                "年化收益": summary_df["cagr"].map(lambda x: f"{float(x):.2%}"),
-                "最大回撤": summary_df["max_drawdown"].map(lambda x: f"{float(x):.2%}"),
-                "卡玛比": summary_df["calmar"].map(lambda x: f"{float(x):.3f}"),
-                "夏普比": summary_df["sharpe"].map(lambda x: f"{float(x):.3f}"),
-                "索提诺": summary_df["sortino"].map(lambda x: f"{float(x):.3f}"),
-                "年化换手": summary_df["ann_turnover"].map(lambda x: f"{float(x):.1f}x"),
-                "手续费": summary_df["total_fees"].map(lambda x: f"¥{float(x):,.0f}"),
-            }
-        )
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-        if eq_curves:
-            fig_eq = go.Figure()
-            for idx, (name, s_eq) in enumerate(eq_curves.items()):
-                norm_eq = s_eq / s_eq.iloc[0]
-                fig_eq.add_trace(
-                    go.Scatter(
-                        x=norm_eq.index,
-                        y=norm_eq.values,
-                        mode="lines",
-                        name=name,
-                        line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 2.6 if name == "combined" else 1.5},
-                    )
-                )
-            if bm_curve is not None:
-                norm_bm = bm_curve / bm_curve.iloc[0]
-                fig_eq.add_trace(
-                    go.Scatter(
-                        x=norm_bm.index,
-                        y=norm_bm.values,
-                        mode="lines",
-                        name="沪深300基准",
-                        line={"color": "#656D7C", "width": 1.3, "dash": "dot"},
-                    )
-                )
-            st.plotly_chart(_style_plotly(fig_eq, "归一化净值曲线", "净值 (起点=1.0)", height=370), use_container_width=True)
-
-            fig_dd = go.Figure()
-            for idx, (name, s_eq) in enumerate(eq_curves.items()):
-                dd = (s_eq / s_eq.cummax() - 1.0) * 100.0
-                fig_dd.add_trace(
-                    go.Scatter(
-                        x=dd.index,
-                        y=dd.values,
-                        mode="lines",
-                        name=name,
-                        line={"color": CHART_PALETTE[idx % len(CHART_PALETTE)], "width": 1.6},
-                    )
-                )
-            st.plotly_chart(_style_plotly(fig_dd, "水下动态回撤 (%)", "回撤 (%)", height=310), use_container_width=True)
-
-            comb_eq = eq_curves["combined"] if "combined" in eq_curves else eq_curves.get("trend_atr")
-            if comb_eq is not None and not comb_eq.empty:
-                monthly = compute_monthly_returns(comb_eq)
-                if not monthly.empty:
-                    fig_hm = px.imshow(
-                        monthly * 100,
-                        text_auto=".1f",
-                        color_continuous_scale=["#1D6F52", "#1B1E25", "#B84242"],
-                        color_continuous_midpoint=0,
-                        aspect="auto",
-                    )
-                    st.plotly_chart(_style_plotly(fig_hm, "实盘组合月度收益率热力图 (%)", "年份", height=350), use_container_width=True)
-
-
-# ==============================================================================
-# Page 3: Ledger & Position Management (Tabbed Progressive Disclosure)
+# Page 2: Ledger & Position Management (Tabbed Progressive Disclosure)
 # ==============================================================================
 elif page == "持仓与资金账本":
     _render_page_header("持仓与资金账本", "PERSISTED LEDGER · TRAILING STOP")

@@ -107,8 +107,8 @@ def cmd_daily_run(args: argparse.Namespace) -> None:
     for line in broker.submit_instructions(instructions):
         print(line)
 
-    # Save latest backtest snapshot on EOD run
-    if args.mode == "eod" and not args.dry_run:
+    # Optional: save latest backtest snapshot on EOD run only when explicitly requested
+    if args.mode == "eod" and args.save_backtest and not args.dry_run:
         all_syms = [a.symbol for a in universe.all_assets]
         close_df = dm.load_price_panel(all_syms, field="close")
         high_df = dm.load_price_panel(all_syms, field="high")
@@ -199,6 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_daily.add_argument("--send-feishu", action="store_true")
     p_daily.add_argument("--force-notify", action="store_true")
     p_daily.add_argument("--force", action="store_true", help="Bypass trading calendar check")
+    p_daily.add_argument("--save-backtest", action="store_true", help="Recompute and persist EOD backtest snapshots")
     p_daily.add_argument("--dry-run", action="store_true")
     p_daily.set_defaults(func=cmd_daily_run)
 
