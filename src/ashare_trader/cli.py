@@ -14,7 +14,7 @@ from ashare_trader.config_loader import (
     load_strategies_config,
     load_universe,
 )
-from ashare_trader.data.calendar import is_cn_trading_day
+from ashare_trader.data.calendar import cn_today, is_cn_trading_day
 from ashare_trader.data.manager import DataManager
 from ashare_trader.execution.broker import ManualPaperBroker
 from ashare_trader.execution.ledger import LedgerService
@@ -122,10 +122,10 @@ def cmd_daily_run(args: argparse.Namespace) -> None:
             low_df=low_df,
             open_df=open_df,
             backtest_config=bt_cfg,
-            start_date="2019-01-01",
+            start_date="2018-01-01",
             benchmark_symbol=universe.benchmark.symbol,
         )
-        today = date.today()
+        today = cn_today()
         for name, res in results.items():
             eq_points = [
                 {"date": dt.strftime("%Y-%m-%d"), "equity": round(float(val), 2)}

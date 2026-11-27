@@ -393,6 +393,7 @@ class LocalStorage(StorageBackend):
     ) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
+            conn.execute("DELETE FROM backtest_runs WHERE strategy_name = ?", (strategy_name,))
             conn.execute(
                 """
                 INSERT INTO backtest_runs

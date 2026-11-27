@@ -116,3 +116,10 @@ def test_health_and_signals_persistence(tmp_path):
     df_s = store.load_latest_signals()
     assert len(df_s) == 1
     assert df_s.iloc[0]["action"] == "BUY"
+
+    # Backtest run persistence should be idempotent per strategy_name
+    store.save_backtest_run(date(2024, 3, 1), "trend_atr", {"w": 20}, {"cagr": 0.12}, [{"date": "2024-03-01", "equity": 100000}])
+    store.save_backtest_run(date(2024, 3, 2), "trend_atr", {"w": 20}, {"cagr": 0.13}, [{"date": "2024-03-02", "equity": 101000}])
+    df_bt = store.load_latest_backtest_runs()
+    assert len(df_bt) == 1
+    assert df_bt.iloc[0]["run_date"] == "2024-03-02"

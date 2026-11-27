@@ -256,9 +256,12 @@ CHART_PALETTE = ["#D4A359", "#36B37E", "#60A5FA", "#C084FC", "#7E8796"]
 
 
 def _inject_secrets_to_env() -> None:
-    for key in ["SUPABASE_URL", "SUPABASE_KEY", "FEISHU_WEBHOOK_URL", "FEISHU_SECRET", "APP_PASSWORD"]:
-        if key not in os.environ and key in st.secrets:
-            os.environ[key] = str(st.secrets[key])
+    try:
+        for key in ["SUPABASE_URL", "SUPABASE_KEY", "FEISHU_WEBHOOK_URL", "FEISHU_SECRET", "APP_PASSWORD"]:
+            if key not in os.environ and key in st.secrets:
+                os.environ[key] = str(st.secrets[key])
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _check_write_auth() -> bool:

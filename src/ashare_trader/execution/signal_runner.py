@@ -106,11 +106,11 @@ def run_daily_signal(
             action = "SELL"
             sugg_shares = positions[sym].shares if sym in positions else 0
         elif diff_w > rebalance_threshold:
-            action = "BUY"
             sugg_shares = int((total_eq * diff_w / px) // lot_size) * lot_size if px and px > 0 else 0
+            action = "BUY" if sugg_shares > 0 else "HOLD"
         elif diff_w < -rebalance_threshold:
-            action = "SELL"
             sugg_shares = int((total_eq * abs(diff_w) / px) // lot_size) * lot_size if px and px > 0 else 0
+            action = "SELL" if sugg_shares > 0 else "HOLD"
         else:
             action = "HOLD"
             sugg_shares = 0

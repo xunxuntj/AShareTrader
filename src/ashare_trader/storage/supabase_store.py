@@ -297,6 +297,8 @@ class SupabaseStorage(StorageBackend):
         metrics: dict[str, Any],
         equity_curve: list[dict[str, Any]],
     ) -> None:
+        # Keep only the latest snapshot per strategy to protect Supabase free-tier storage quota
+        self.client.table("backtest_runs").delete().eq("strategy_name", strategy_name).execute()
         self.client.table("backtest_runs").insert(
             {
                 "run_date": run_date.isoformat(),

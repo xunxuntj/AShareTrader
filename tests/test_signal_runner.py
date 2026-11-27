@@ -118,3 +118,33 @@ def test_save_signals_is_idempotent_for_same_day_and_mode(tmp_path):
 
     assert first_count > 0
     assert second_count == first_count
+
+
+def test_sub_lot_rebalance_downgrades_to_hold(tmp_path):
+    """P1 regression: never emit a BUY/SELL 0-share instruction when cash delta is below 1 lot."""
+    store = LocalStorage(tmp_path)
+    # Bear market -> target is 100% 511880 (price 100.0, 1 lot = 10,000 RMB)
+    prices = list(np.linspace(2.0, 1.0, 70))
+    _seed_market_data(store, prices)
+
+    # Hold 900 shares of 511880 (90k) + 10k cash -> wait: set cash to 5000 so total=95k, diff=5.2% (>3%) = 5000 < 10000 (1 lot)
+    ledger = LedgerService(store)
+    ledger.record_execution(
+        trade_date=date(2024, 3, 1),
+        symbol="511880",
+        side="BUY",
+        shares=900,
+        price=100.0,
+    )
+    ledger.record_execution(
+        trade_date=date(2024, 3, 2),
+        symbol="CASH",
+        side="WITHDRAW",
+        shares=0,
+        price=5000.0,
+    )
+
+    instructions, _ = run_daily_signal(store, _build_universe(), _trend_only_cfg(), run_mode="intraday", persist=False)
+    ins_map = {i.symbol: i for i in instructions}
+    assert ins_map["511880"].action == "HOLD"
+    assert ins_map["511880"].suggested_shares == 0

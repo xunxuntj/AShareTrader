@@ -10,6 +10,7 @@ import pandas as pd
 from ashare_trader.data.akshare_feed import AKShareFeed
 from ashare_trader.data.baostock_feed import BaostockFeed
 from ashare_trader.data.base import DataFeed
+from ashare_trader.data.calendar import cn_today
 from ashare_trader.models import Asset, DataHealthRecord, UniverseConfig
 from ashare_trader.storage.base import StorageBackend
 
@@ -41,7 +42,7 @@ class DataManager:
     ) -> list[DataHealthRecord]:
         """Synchronize all assets in universe and persist data health telemetry."""
         history_start = start_date or self.DEFAULT_HISTORY_START
-        target_end = end_date or date.today()
+        target_end = end_date or cn_today()
         run_at = datetime.now(timezone.utc)
         health_records: list[DataHealthRecord] = []
 
@@ -55,6 +56,7 @@ class DataManager:
                     asset=asset,
                     history_start=history_start,
                     target_end=target_end,
+                    include_intraday=include_intraday,
                     intraday_quote=intraday_map.get(asset.symbol),
                     force_full=force_full,
                     run_at=run_at,
@@ -72,6 +74,7 @@ class DataManager:
         asset: Asset,
         history_start: date,
         target_end: date,
+        include_intraday: bool,
         intraday_quote: dict[str, float] | None,
         force_full: bool,
         run_at: datetime,
@@ -79,6 +82,8 @@ class DataManager:
         t0 = time.perf_counter()
         latest_final = None if force_full else self.storage.get_latest_final_date(asset.symbol)
 
+        # During intraday runs (14:35), cap finalized historical bars at yesterday so unclosed bars never mark is_final=True
+        hist_end = target_end - timedelta(days=1) if include_intraday else target_end
         fetch_start = (
             max(history_start, latest_final - timedelta(days=self.OVERLAP_DAYS))
             if latest_final is not None
@@ -86,13 +91,13 @@ class DataManager:
         )
 
         # Fetch historical daily bars with primary -> backup fallback
-        df, source_used, status, err_msg = self._fetch_with_fallback(asset, fetch_start, target_end)
+        df, source_used, status, err_msg = self._fetch_with_fallback(asset, fetch_start, hist_end)
 
         if not df.empty:
             if latest_final is not None and not force_full and self._has_adjustment_drift(asset.symbol, df):
                 # Dividend/split detected: perform full qfq refresh from history_start
                 full_df, full_src, full_status, full_err = self._fetch_with_fallback(
-                    asset, history_start, target_end
+                    asset, history_start, hist_end
                 )
                 if not full_df.empty:
                     self.storage.replace_symbol_bars(asset.symbol, full_df, source=full_src, is_final=True)
