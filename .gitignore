@@ -11,9 +11,9 @@ venv/
 .env
 .streamlit/secrets.toml
 
-# Local offline cache & temporary outputs
-data/
-reports/
+# Local offline cache & temporary outputs (root-only, never ignore src/ashare_trader/data/)
+/data/
+/reports/
 *.sqlite
 *.db
 *.parquet
