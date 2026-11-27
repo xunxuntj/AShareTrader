@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone
 
 import pandas as pd
 
-from ashare_trader.execution.ledger import LedgerService
+from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
 from ashare_trader.models import DataHealthRecord, TradeInstruction
 from ashare_trader.storage.local_store import LocalStorage
 
@@ -123,3 +123,18 @@ def test_health_and_signals_persistence(tmp_path):
     df_bt = store.load_latest_backtest_runs()
     assert len(df_bt) == 1
     assert df_bt.iloc[0]["run_date"] == "2024-03-02"
+
+
+def test_compute_live_equity_curve_tracks_nav_and_drawdown(tmp_path):
+    store = LocalStorage(tmp_path)
+    ledger = LedgerService(store)
+    ledger.record_execution(date(2024, 2, 1), "510300", "BUY", 10000, 3.5, fee=3.5)
+    trades_df = store.load_trades()
+
+    idx = pd.date_range("2024-02-01", periods=4, freq="B")
+    close_df = pd.DataFrame({"510300": [3.5, 3.7, 3.6, 3.8]}, index=idx)
+    eq_df = compute_live_equity_curve(trades_df, close_df, initial_capital=100000.0)
+
+    assert len(eq_df) == 4
+    assert eq_df["nav"].iloc[-1] > 1.02  # +3000 profit on 100k -> ~+3%
+    assert eq_df["drawdown"].min() < 0.0  # Pullback from 3.7 to 3.6 recorded

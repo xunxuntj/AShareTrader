@@ -25,7 +25,7 @@ from ashare_trader.config_loader import (
     load_universe,
 )
 from ashare_trader.data.manager import DataManager
-from ashare_trader.execution.ledger import LedgerService
+from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
 from ashare_trader.execution.signal_runner import run_daily_signal
 from ashare_trader.notify.feishu import FeishuNotifier
 from ashare_trader.storage.factory import create_storage
@@ -542,6 +542,55 @@ if page == "今日信号与风控":
                     st.success("测试卡片已发送")
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"发送失败：{exc}")
+
+    _render_section_head("实盘策略表现", "LIVE NAV VS CSI 300")
+    df_live_trades = storage.load_trades(limit=500)
+    live_eq_df = compute_live_equity_curve(df_live_trades, close_df, initial_capital=account.initial_capital)
+    if live_eq_df.empty or len(live_eq_df) < 2:
+        st.caption("录入首笔实盘成交并经历至少 2 个交易日后，此处将自动绘制你的实盘净值曲线、最大回撤与同期沪深 300 基准对比。")
+    else:
+        live_ret = float(live_eq_df["nav"].iloc[-1] - 1.0)
+        live_dd = float(abs(live_eq_df["drawdown"].min()))
+        bm_series = (
+            close_df[universe.benchmark.symbol].reindex(live_eq_df.index).ffill().dropna()
+            if universe.benchmark.symbol in close_df.columns
+            else pd.Series(dtype=float)
+        )
+        bm_nav = (bm_series / bm_series.iloc[0]) if not bm_series.empty else pd.Series(dtype=float)
+        bm_ret = float(bm_nav.iloc[-1] - 1.0) if not bm_nav.empty else 0.0
+        excess = live_ret - bm_ret
+
+        st.markdown(
+            f'<div class="sys-meta" style="margin-bottom:0.6rem;">'
+            f'实盘累计 <span class="{"val-up" if live_ret > 0 else ("val-down" if live_ret < 0 else "")}">{live_ret:+.2%}</span> · '
+            f'同期沪深300 <span>{bm_ret:+.2%}</span> · '
+            f'超额收益 <span class="{"val-up" if excess > 0 else ("val-down" if excess < 0 else "")}">{excess:+.2%}</span> · '
+            f'实盘最大回撤 <span>{live_dd:.2%}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        fig_live = go.Figure()
+        fig_live.add_trace(
+            go.Scatter(
+                x=live_eq_df.index,
+                y=live_eq_df["nav"].values,
+                mode="lines",
+                name="实盘净值",
+                line={"color": "#D4A359", "width": 2.4},
+            )
+        )
+        if not bm_nav.empty:
+            fig_live.add_trace(
+                go.Scatter(
+                    x=bm_nav.index,
+                    y=bm_nav.values,
+                    mode="lines",
+                    name="沪深300基准",
+                    line={"color": "#656D7C", "width": 1.4, "dash": "dot"},
+                )
+            )
+        st.plotly_chart(_style_plotly(fig_live, "实盘净值走势 vs 沪深300", "净值 (起点=1.0)", height=320), use_container_width=True)
 
     _render_section_head("持仓动态止损监控", "TRAILING STOP CUSHION")
     if not positions:
