@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import date
+from pathlib import Path
 from typing import Any
+
+# Ensure src/ is on sys.path for Streamlit Community Cloud (which only installs requirements.txt)
+_SRC_DIR = str(Path(__file__).resolve().parent / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 import pandas as pd
 import plotly.express as px

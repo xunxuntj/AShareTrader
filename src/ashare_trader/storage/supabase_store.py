@@ -23,14 +23,17 @@ class SupabaseStorage(StorageBackend):
     BATCH_SIZE = 500
 
     def __init__(self, url: str, key: str, client: Any | None = None) -> None:
-        self.url = url
-        self.key = key
+        clean_url = url.strip().rstrip("/")
+        if clean_url.endswith("/rest/v1"):
+            clean_url = clean_url[: -len("/rest/v1")]
+        self.url = clean_url
+        self.key = key.strip()
         if client is not None:
             self.client = client
         else:
             from supabase import create_client
 
-            self.client = create_client(url, key)
+            self.client = create_client(self.url, self.key)
 
     @property
     def backend_name(self) -> str:
