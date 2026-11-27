@@ -331,8 +331,8 @@ def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -
             "font": {"color": "#98A0AE", "size": 11, "family": "IBM Plex Mono"},
         },
         margin={"l": 16, "r": 16, "t": 48, "b": 60},
-        paper_bgcolor="#14161B",
-        plot_bgcolor="#14161B",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
         font={"family": "IBM Plex Sans, sans-serif", "size": 12, "color": "#98A0AE"},
     )
     fig.update_xaxes(showgrid=False, linecolor="#242830", tickfont={"color": "#98A0AE", "family": "IBM Plex Mono"})
@@ -641,7 +641,8 @@ if page == "交易终端":
                 template="plotly_dark",
                 height=280,
                 margin={"l": 10, "r": 10, "t": 16, "b": 16},
-                paper_bgcolor="#14161B",
+                paper_bgcolor="rgba(0,0,0,0)",
+                plot_bgcolor="rgba(0,0,0,0)",
                 legend={"font": {"color": "#98A0AE", "size": 11}},
             )
             st.plotly_chart(fig_pie, use_container_width=True)
