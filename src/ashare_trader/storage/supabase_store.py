@@ -169,6 +169,17 @@ class SupabaseStorage(StorageBackend):
     def save_signals(self, instructions: list[TradeInstruction]) -> None:
         if not instructions:
             return
+        # Idempotent write: clear prior batch for same (signal_date, run_mode, strategy_name)
+        keys = {(ins.signal_date.isoformat(), ins.run_mode, ins.strategy_name) for ins in instructions}
+        for sig_date, run_mode, strat_name in keys:
+            (
+                self.client.table("daily_signals")
+                .delete()
+                .eq("signal_date", sig_date)
+                .eq("run_mode", run_mode)
+                .eq("strategy_name", strat_name)
+                .execute()
+            )
         payload = [
             {
                 "signal_date": ins.signal_date.isoformat(),

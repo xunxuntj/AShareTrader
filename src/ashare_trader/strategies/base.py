@@ -49,6 +49,9 @@ class BaseStrategy(ABC):
     def reset_state(self) -> None:
         """Reset any stateful trackers before starting a fresh backtest."""
 
+    def seed_stop_losses(self, existing_stops: dict[str, float]) -> None:
+        """Hydrate trailing stop-loss state from persisted ledger positions on cold start."""
+
     @abstractmethod
     def generate_signal(
         self,

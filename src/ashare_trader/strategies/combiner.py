@@ -31,6 +31,11 @@ class CombinedStrategy(BaseStrategy):
             strat.reset_state()
         self._sub_current_weights = {s.name: {} for s in self.strategies}
 
+    def seed_stop_losses(self, existing_stops: dict[str, float]) -> None:
+        """Propagate persisted trailing stops down to all sub-strategies."""
+        for strat in self.strategies:
+            strat.seed_stop_losses(existing_stops)
+
     def generate_signal(
         self,
         close_df: pd.DataFrame,
@@ -48,11 +53,15 @@ class CombinedStrategy(BaseStrategy):
             sw = self.strategy_weights.get(strat.name, 0.0)
             if sw <= 0:
                 continue
+            # On stateless cloud cold-start, hydrate sub-strategy holdings from live ledger weights
+            sub_cur = self._sub_current_weights.get(strat.name, {})
+            if not sub_cur and current_weights:
+                sub_cur = dict(current_weights)
             sub_sig = strat.generate_signal(
                 close_df=close_df,
                 high_df=high_df,
                 low_df=low_df,
-                current_weights=self._sub_current_weights.get(strat.name, {}),
+                current_weights=sub_cur,
             )
             self._sub_current_weights[strat.name] = dict(sub_sig.target_weights)
 

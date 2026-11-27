@@ -31,6 +31,13 @@ class TrendATRStrategy(BaseStrategy):
     def reset_state(self) -> None:
         self._active_stops.clear()
 
+    def seed_stop_losses(self, existing_stops: dict[str, float]) -> None:
+        """Restore persisted trailing stops so stateless daily cloud runs never lower a stop."""
+        for sym, stop_px in existing_stops.items():
+            if stop_px is not None and stop_px > 0:
+                prev = self._active_stops.get(sym, 0.0)
+                self._active_stops[sym] = max(prev, float(stop_px))
+
     def generate_signal(
         self,
         close_df: pd.DataFrame,

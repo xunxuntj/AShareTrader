@@ -237,7 +237,14 @@ class LocalStorage(StorageBackend):
         if not instructions:
             return
         now_iso = datetime.now(timezone.utc).isoformat()
+        # Idempotent write: replace existing rows for the same (signal_date, run_mode, strategy_name)
+        keys = {(ins.signal_date.isoformat(), ins.run_mode, ins.strategy_name) for ins in instructions}
         with self._connect() as conn:
+            for sig_date, run_mode, strat_name in keys:
+                conn.execute(
+                    "DELETE FROM daily_signals WHERE signal_date = ? AND run_mode = ? AND strategy_name = ?",
+                    (sig_date, run_mode, strat_name),
+                )
             conn.executemany(
                 """
                 INSERT INTO daily_signals

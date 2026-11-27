@@ -139,10 +139,27 @@ def cmd_daily_run(args: argparse.Namespace) -> None:
                 equity_curve=eq_points,
             )
 
-    # Feishu notification policy: always notify on intraday; notify on EOD only if forced or errors exist
+    # Feishu notification policy:
+    # - Always notify on intraday (14:35)
+    # - On EOD (16:30), notify only on data failure, force_notify, OR signal reversal vs intraday
     notifier = FeishuNotifier()
     has_failure = any(h.status == "failed" for h in health)
-    should_notify = args.send_feishu and (args.mode == "intraday" or has_failure or args.force_notify)
+    signal_reversed = False
+    if args.mode == "eod" and instructions:
+        prev_df = storage.load_latest_signals(strategy_name=instructions[0].strategy_name, limit=40)
+        if not prev_df.empty:
+            sig_date_str = instructions[0].signal_date.isoformat()
+            intraday_rows = prev_df[
+                (prev_df["signal_date"].astype(str) == sig_date_str) & (prev_df["run_mode"] == "intraday")
+            ]
+            if not intraday_rows.empty:
+                prev_actions = dict(zip(intraday_rows["symbol"], intraday_rows["action"], strict=False))
+                curr_actions = {ins.symbol: ins.action for ins in instructions}
+                signal_reversed = prev_actions != curr_actions
+
+    should_notify = args.send_feishu and (
+        args.mode == "intraday" or has_failure or signal_reversed or args.force_notify
+    )
     if should_notify and notifier.is_configured and not args.dry_run:
         positions = LedgerService(storage).get_positions()
         card = notifier.build_signal_card(

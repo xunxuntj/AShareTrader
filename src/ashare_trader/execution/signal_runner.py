@@ -77,6 +77,13 @@ def run_daily_signal(
     }
 
     _, combined = build_default_strategies(universe.safe_haven.symbol, strat_cfg)
+    # Hydrate persisted trailing stops from ledger so cold-start runs respect prior high-water stops
+    persisted_stops = {
+        sym: pos.stop_loss_price
+        for sym, pos in positions.items()
+        if pos.shares > 0 and pos.stop_loss_price is not None and pos.stop_loss_price > 0
+    }
+    combined.seed_stop_losses(persisted_stops)
     signal = combined.generate_signal(
         close_df=close_df,
         high_df=high_df,
