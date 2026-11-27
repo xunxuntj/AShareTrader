@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
-from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +22,7 @@ from ashare_trader.config_loader import (
     load_strategies_config,
     load_universe,
 )
+from ashare_trader.data.calendar import cn_today
 from ashare_trader.data.manager import DataManager
 from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
 from ashare_trader.execution.signal_runner import run_daily_signal
@@ -309,6 +308,12 @@ def _cached_health_logs(backend_tag: str) -> pd.DataFrame:
     return create_storage().load_latest_data_health(limit=120)
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _cached_trades(backend_tag: str) -> pd.DataFrame:
+    _ = backend_tag
+    return create_storage().load_trades(limit=500)
+
+
 def _fmt_symbol(sym: str) -> str:
     a = asset_map.get(sym)
     return f"{a.name} ({sym})" if a else sym
@@ -540,7 +545,7 @@ if page == "交易终端":
                     st.error(f"发送失败：{exc}")
 
     _render_section_head("实盘策略表现", "LIVE NAV VS CSI 300")
-    df_live_trades = storage.load_trades(limit=500)
+    df_live_trades = _cached_trades(storage.backend_name)
     live_eq_df = compute_live_equity_curve(df_live_trades, close_df, initial_capital=account.initial_capital)
     if live_eq_df.empty or len(live_eq_df) < 2:
         st.caption("录入首笔实盘成交并经历至少 2 个交易日后，此处将自动绘制你的实盘净值曲线、最大回撤与同期沪深 300 基准对比。")
@@ -653,7 +658,7 @@ if page == "交易终端":
         else:
             with st.form("trade_form", border=True):
                 fc1, fc2, fc3 = st.columns(3)
-                t_date = fc1.date_input("成交日期", value=date.today())
+                t_date = fc1.date_input("成交日期", value=cn_today())
                 t_side = fc2.selectbox("操作类型", ["BUY", "SELL", "DEPOSIT", "WITHDRAW"])
                 t_sym = fc3.selectbox("标的（出入金可忽略）", all_syms, format_func=_fmt_symbol)
                 fc4, fc5, fc6 = st.columns(3)
@@ -664,19 +669,24 @@ if page == "交易终端":
                 t_stop = fc7.number_input("初始止损价（0 自动）", min_value=0.0, step=0.01, value=0.0, format="%.4f")
                 t_note = fc8.text_input("备注")
                 if st.form_submit_button("保存至数据库", type="primary", use_container_width=True):
-                    ledger.record_execution(
-                        trade_date=t_date,
-                        symbol=t_sym if t_side in ("BUY", "SELL") else "CASH",
-                        side=t_side,
-                        shares=int(t_shares),
-                        price=float(t_price),
-                        fee=float(t_fee),
-                        stop_loss_price=float(t_stop) if t_stop > 0 else None,
-                        note=t_note,
-                    )
-                    st.cache_data.clear()
-                    st.success("已持久化写入数据库")
-                    st.rerun()
+                    if t_side in ("BUY", "SELL") and (t_shares <= 0 or t_price <= 0):
+                        st.error("买入/卖出时，份数和成交价必须大于 0。")
+                    elif t_side in ("DEPOSIT", "WITHDRAW") and t_price <= 0:
+                        st.error("出入金金额必须大于 0。")
+                    else:
+                        ledger.record_execution(
+                            trade_date=t_date,
+                            symbol=t_sym if t_side in ("BUY", "SELL") else "CASH",
+                            side=t_side,
+                            shares=int(t_shares),
+                            price=float(t_price),
+                            fee=float(t_fee),
+                            stop_loss_price=float(t_stop) if t_stop > 0 else None,
+                            note=t_note,
+                        )
+                        st.cache_data.clear()
+                        st.success("已持久化写入数据库")
+                        st.rerun()
 
     with tab_hist:
         if df_live_trades.empty:

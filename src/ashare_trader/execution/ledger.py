@@ -40,7 +40,9 @@ def compute_live_equity_curve(
     nav_base = max(1.0, cash if cash > 0 else float(initial_capital))
 
     holdings: dict[str, int] = {}
-    trades_by_date = {dt: grp for dt, grp in tdf.groupby("trade_date")}
+    trade_rows = list(tdf.itertuples(index=False))
+    trade_idx = 0
+    n_trades = len(trade_rows)
 
     records: list[dict[str, float]] = []
     out_dates: list[pd.Timestamp] = []
@@ -48,31 +50,32 @@ def compute_live_equity_curve(
     prev_equity: float | None = None
 
     for dt in eval_dates:
-        # Apply any cashflows/trades on dt
+        # Consume all trades/cashflows on or before trading day dt (handles weekend deposits cleanly)
         net_flow = 0.0
-        if dt in trades_by_date:
-            for _, tr in trades_by_date[dt].iterrows():
-                side = str(tr["side"])
-                sym = str(tr["symbol"])
-                sh = int(tr["shares"])
-                px = float(tr["price"])
-                fee = float(tr.get("fee", 0.0) or 0.0)
-                if side == "DEPOSIT":
-                    cash += px
-                    net_flow += px
-                elif side == "WITHDRAW":
-                    cash = max(0.0, cash - px)
-                    net_flow -= px
-                elif side == "BUY":
-                    cash = max(0.0, cash - (sh * px + fee))
-                    holdings[sym] = holdings.get(sym, 0) + sh
-                elif side == "SELL":
-                    cash += sh * px - fee
-                    rem = max(0, holdings.get(sym, 0) - sh)
-                    if rem > 0:
-                        holdings[sym] = rem
-                    else:
-                        holdings.pop(sym, None)
+        while trade_idx < n_trades and trade_rows[trade_idx].trade_date <= dt:
+            tr = trade_rows[trade_idx]
+            trade_idx += 1
+            side = str(tr.side)
+            sym = str(tr.symbol)
+            sh = int(tr.shares)
+            px = float(tr.price)
+            fee = float(getattr(tr, "fee", 0.0) or 0.0)
+            if side == "DEPOSIT":
+                cash += px
+                net_flow += px
+            elif side == "WITHDRAW":
+                cash = max(0.0, cash - px)
+                net_flow -= px
+            elif side == "BUY":
+                cash = max(0.0, cash - (sh * px + fee))
+                holdings[sym] = holdings.get(sym, 0) + sh
+            elif side == "SELL":
+                cash += sh * px - fee
+                rem = max(0, holdings.get(sym, 0) - sh)
+                if rem > 0:
+                    holdings[sym] = rem
+                else:
+                    holdings.pop(sym, None)
 
         row_px = prices.loc[dt]
         mkt_val = 0.0

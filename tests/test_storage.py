@@ -138,3 +138,19 @@ def test_compute_live_equity_curve_tracks_nav_and_drawdown(tmp_path):
     assert len(eq_df) == 4
     assert eq_df["nav"].iloc[-1] > 1.02  # +3000 profit on 100k -> ~+3%
     assert eq_df["drawdown"].min() < 0.0  # Pullback from 3.7 to 3.6 recorded
+
+
+def test_compute_live_equity_curve_handles_weekend_deposit(tmp_path):
+    store = LocalStorage(tmp_path)
+    ledger = LedgerService(store)
+    # 2024-02-03 is Saturday -> should be applied on Monday 2024-02-05 without distorting TWR NAV
+    ledger.record_execution(date(2024, 2, 1), "510300", "BUY", 10000, 3.5, fee=0.0)
+    ledger.record_execution(date(2024, 2, 3), "CASH", "DEPOSIT", 0, 50000.0, fee=0.0)
+    trades_df = store.load_trades()
+
+    idx = pd.DatetimeIndex(["2024-02-01", "2024-02-02", "2024-02-05"])
+    close_df = pd.DataFrame({"510300": [3.5, 3.5, 3.5]}, index=idx)
+    eq_df = compute_live_equity_curve(trades_df, close_df, initial_capital=150000.0)
+
+    assert eq_df.loc["2024-02-05", "equity"] == 150000.0
+    assert abs(eq_df.loc["2024-02-05", "nav"] - 1.0) < 1e-6
