@@ -16,6 +16,7 @@ from ashare_trader.models import (
     Position,
     TradeInstruction,
     TradeRecord,
+    UserAccount,
 )
 from ashare_trader.storage.base import StorageBackend
 
@@ -68,22 +69,33 @@ class LocalStorage(StorageBackend):
                     reason          TEXT,
                     created_at      TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS app_users (
+                    user_id         TEXT PRIMARY KEY,
+                    display_name    TEXT NOT NULL,
+                    role            TEXT NOT NULL DEFAULT 'user',
+                    password_hash   TEXT NOT NULL,
+                    is_active       INTEGER NOT NULL DEFAULT 1,
+                    created_at      TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS ledger_account (
-                    account_id      TEXT PRIMARY KEY,
+                    user_id         TEXT PRIMARY KEY,
                     initial_capital REAL NOT NULL DEFAULT 100000,
                     cash            REAL NOT NULL DEFAULT 100000,
                     updated_at      TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS ledger_positions (
-                    symbol          TEXT PRIMARY KEY,
+                    user_id         TEXT NOT NULL,
+                    symbol          TEXT NOT NULL,
                     shares          INTEGER NOT NULL DEFAULT 0,
                     avg_cost        REAL NOT NULL DEFAULT 0,
                     highest_price   REAL NOT NULL DEFAULT 0,
                     stop_loss_price REAL,
-                    updated_at      TEXT NOT NULL
+                    updated_at      TEXT NOT NULL,
+                    PRIMARY KEY (user_id, symbol)
                 );
                 CREATE TABLE IF NOT EXISTS ledger_trades (
                     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id         TEXT NOT NULL,
                     trade_date      TEXT NOT NULL,
                     symbol          TEXT NOT NULL,
                     side            TEXT NOT NULL,
@@ -107,8 +119,8 @@ class LocalStorage(StorageBackend):
             now_iso = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 """
-                INSERT OR IGNORE INTO ledger_account (account_id, initial_capital, cash, updated_at)
-                VALUES ('default', 100000.0, 100000.0, ?)
+                INSERT OR IGNORE INTO ledger_account (user_id, initial_capital, cash, updated_at)
+                VALUES ('admin', 100000.0, 100000.0, ?)
                 """,
                 (now_iso,),
             )
@@ -283,29 +295,94 @@ class LocalStorage(StorageBackend):
                 params=(limit,),
             )
 
-    def load_account(self, account_id: str = "default") -> AccountState:
+    def load_users(self) -> list[UserAccount]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM app_users ORDER BY created_at ASC").fetchall()
+        return [
+            UserAccount(
+                user_id=r["user_id"],
+                display_name=r["display_name"],
+                role=r["role"],
+                password_hash=r["password_hash"],
+                is_active=bool(r["is_active"]),
+                created_at=datetime.fromisoformat(r["created_at"]),
+            )
+            for r in rows
+        ]
+
+    def get_user(self, user_id: str) -> UserAccount | None:
+        with self._connect() as conn:
+            r = conn.execute("SELECT * FROM app_users WHERE user_id = ?", (user_id,)).fetchone()
+        if r is None:
+            return None
+        return UserAccount(
+            user_id=r["user_id"],
+            display_name=r["display_name"],
+            role=r["role"],
+            password_hash=r["password_hash"],
+            is_active=bool(r["is_active"]),
+            created_at=datetime.fromisoformat(r["created_at"]),
+        )
+
+    def upsert_user(self, user: UserAccount) -> None:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_users (user_id, display_name, role, password_hash, is_active, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    display_name = excluded.display_name,
+                    role = excluded.role,
+                    password_hash = excluded.password_hash,
+                    is_active = excluded.is_active
+                """,
+                (
+                    user.user_id,
+                    user.display_name,
+                    user.role,
+                    user.password_hash,
+                    1 if user.is_active else 0,
+                    (user.created_at.isoformat() if user.created_at else now_iso),
+                ),
+            )
+
+    def load_account(self, account_id: str = "admin") -> AccountState:
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM ledger_account WHERE account_id = ?",
+                "SELECT * FROM ledger_account WHERE user_id = ?",
                 (account_id,),
             ).fetchone()
             if row is None:
                 return AccountState(account_id=account_id)
             return AccountState(
-                account_id=row["account_id"],
+                account_id=row["user_id"],
                 initial_capital=float(row["initial_capital"]),
                 cash=float(row["cash"]),
                 updated_at=datetime.fromisoformat(row["updated_at"]),
             )
+
+    def load_all_accounts(self) -> dict[str, AccountState]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM ledger_account").fetchall()
+        return {
+            row["user_id"]: AccountState(
+                account_id=row["user_id"],
+                initial_capital=float(row["initial_capital"]),
+                cash=float(row["cash"]),
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+            )
+            for row in rows
+        }
 
     def save_account(self, account: AccountState) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO ledger_account (account_id, initial_capital, cash, updated_at)
+                INSERT INTO ledger_account (user_id, initial_capital, cash, updated_at)
                 VALUES (?, ?, ?, ?)
-                ON CONFLICT(account_id) DO UPDATE SET
+                ON CONFLICT(user_id) DO UPDATE SET
                     initial_capital = excluded.initial_capital,
                     cash = excluded.cash,
                     updated_at = excluded.updated_at
@@ -313,9 +390,12 @@ class LocalStorage(StorageBackend):
                 (account.account_id, float(account.initial_capital), float(account.cash), now_iso),
             )
 
-    def load_positions(self) -> dict[str, Position]:
+    def load_positions(self, user_id: str = "admin") -> dict[str, Position]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM ledger_positions WHERE shares > 0").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM ledger_positions WHERE user_id = ? AND shares > 0",
+                (user_id,),
+            ).fetchall()
         positions: dict[str, Position] = {}
         for row in rows:
             positions[row["symbol"]] = Position(
@@ -325,20 +405,42 @@ class LocalStorage(StorageBackend):
                 highest_price=float(row["highest_price"]),
                 stop_loss_price=float(row["stop_loss_price"]) if row["stop_loss_price"] is not None else None,
                 updated_at=datetime.fromisoformat(row["updated_at"]),
+                user_id=row["user_id"],
             )
         return positions
+
+    def load_all_positions(self) -> dict[str, dict[str, Position]]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM ledger_positions WHERE shares > 0").fetchall()
+        grouped: dict[str, dict[str, Position]] = {}
+        for row in rows:
+            uid = row["user_id"]
+            grouped.setdefault(uid, {})[row["symbol"]] = Position(
+                symbol=row["symbol"],
+                shares=int(row["shares"]),
+                avg_cost=float(row["avg_cost"]),
+                highest_price=float(row["highest_price"]),
+                stop_loss_price=float(row["stop_loss_price"]) if row["stop_loss_price"] is not None else None,
+                updated_at=datetime.fromisoformat(row["updated_at"]),
+                user_id=uid,
+            )
+        return grouped
 
     def upsert_position(self, position: Position) -> None:
         with self._connect() as conn:
             if position.shares <= 0:
-                conn.execute("DELETE FROM ledger_positions WHERE symbol = ?", (position.symbol,))
+                conn.execute(
+                    "DELETE FROM ledger_positions WHERE user_id = ? AND symbol = ?",
+                    (position.user_id, position.symbol),
+                )
                 return
             now_iso = datetime.now(timezone.utc).isoformat()
             conn.execute(
                 """
-                INSERT INTO ledger_positions (symbol, shares, avg_cost, highest_price, stop_loss_price, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(symbol) DO UPDATE SET
+                INSERT INTO ledger_positions
+                    (user_id, symbol, shares, avg_cost, highest_price, stop_loss_price, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, symbol) DO UPDATE SET
                     shares = excluded.shares,
                     avg_cost = excluded.avg_cost,
                     highest_price = excluded.highest_price,
@@ -346,6 +448,7 @@ class LocalStorage(StorageBackend):
                     updated_at = excluded.updated_at
                 """,
                 (
+                    position.user_id,
                     position.symbol,
                     int(position.shares),
                     float(position.avg_cost),
@@ -360,10 +463,11 @@ class LocalStorage(StorageBackend):
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO ledger_trades (trade_date, symbol, side, shares, price, fee, note, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO ledger_trades (user_id, trade_date, symbol, side, shares, price, fee, note, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    trade.user_id,
                     trade.trade_date.isoformat(),
                     trade.symbol,
                     trade.side,
@@ -375,7 +479,15 @@ class LocalStorage(StorageBackend):
                 ),
             )
 
-    def load_trades(self, limit: int = 200) -> pd.DataFrame:
+    def load_trades(self, user_id: str = "admin", limit: int = 200) -> pd.DataFrame:
+        with self._connect() as conn:
+            return pd.read_sql_query(
+                "SELECT * FROM ledger_trades WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                conn,
+                params=(user_id, limit),
+            )
+
+    def load_all_trades(self, limit: int = 2000) -> pd.DataFrame:
         with self._connect() as conn:
             return pd.read_sql_query(
                 "SELECT * FROM ledger_trades ORDER BY id DESC LIMIT ?",

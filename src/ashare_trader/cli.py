@@ -17,8 +17,7 @@ from ashare_trader.config_loader import (
 from ashare_trader.data.calendar import cn_today, is_cn_trading_day
 from ashare_trader.data.manager import DataManager
 from ashare_trader.execution.broker import ManualPaperBroker
-from ashare_trader.execution.ledger import LedgerService
-from ashare_trader.execution.signal_runner import build_default_strategies, run_daily_signal
+from ashare_trader.execution.signal_runner import build_default_strategies, run_shared_model_signal
 from ashare_trader.notify.feishu import FeishuNotifier
 from ashare_trader.research.validator import run_strategy_benchmark
 from ashare_trader.storage.factory import create_storage
@@ -93,13 +92,14 @@ def cmd_daily_run(args: argparse.Namespace) -> None:
         include_intraday=(args.mode == "intraday"),
     )
 
-    instructions, latest_prices = run_daily_signal(
+    instructions, latest_prices = run_shared_model_signal(
         storage=storage,
         universe=universe,
         strat_cfg=strat_cfg,
         run_mode=args.mode,
         lot_size=bt_cfg.lot_size,
         rebalance_threshold=bt_cfg.rebalance_threshold,
+        ref_capital=bt_cfg.initial_capital,
         persist=not args.dry_run,
     )
 
@@ -161,10 +161,10 @@ def cmd_daily_run(args: argparse.Namespace) -> None:
         args.mode == "intraday" or has_failure or signal_reversed or args.force_notify
     )
     if should_notify and notifier.is_configured and not args.dry_run:
-        positions = LedgerService(storage).get_positions()
+        # Shared group broadcast does not expose any single user's private positions
         card = notifier.build_signal_card(
             instructions=instructions,
-            positions=positions,
+            positions={},
             latest_prices=latest_prices,
             asset_map=universe.asset_map,
             health_records=health,

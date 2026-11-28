@@ -14,6 +14,7 @@ from ashare_trader.models import (
     Position,
     TradeInstruction,
     TradeRecord,
+    UserAccount,
 )
 
 
@@ -65,30 +66,55 @@ class StorageBackend(ABC):
     def load_latest_signals(self, strategy_name: str | None = None, limit: int = 50) -> pd.DataFrame:
         """Load latest persisted signals."""
 
-    # --- Ledger (Account, Positions, Trades) ---
+    # --- Users ---
     @abstractmethod
-    def load_account(self, account_id: str = "default") -> AccountState:
-        """Load cash & initial capital state."""
+    def load_users(self) -> list[UserAccount]:
+        """Load all registered application users."""
+
+    @abstractmethod
+    def get_user(self, user_id: str) -> UserAccount | None:
+        """Load a single user by user_id."""
+
+    @abstractmethod
+    def upsert_user(self, user: UserAccount) -> None:
+        """Create or update a user account."""
+
+    # --- Ledger (Account, Positions, Trades - isolated by user_id) ---
+    @abstractmethod
+    def load_account(self, account_id: str = "admin") -> AccountState:
+        """Load cash & initial capital state for a user."""
+
+    @abstractmethod
+    def load_all_accounts(self) -> dict[str, AccountState]:
+        """Admin helper: load account states for all users keyed by user_id."""
 
     @abstractmethod
     def save_account(self, account: AccountState) -> None:
-        """Upsert account cash & initial capital."""
+        """Upsert account cash & initial capital for a user."""
 
     @abstractmethod
-    def load_positions(self) -> dict[str, Position]:
-        """Load all non-zero current holdings."""
+    def load_positions(self, user_id: str = "admin") -> dict[str, Position]:
+        """Load all non-zero current holdings for a user."""
+
+    @abstractmethod
+    def load_all_positions(self) -> dict[str, dict[str, Position]]:
+        """Admin helper: load non-zero positions grouped by user_id."""
 
     @abstractmethod
     def upsert_position(self, position: Position) -> None:
-        """Upsert or remove (if shares <= 0) a position."""
+        """Upsert or remove (if shares <= 0) a position for position.user_id."""
 
     @abstractmethod
     def record_trade(self, trade: TradeRecord) -> None:
-        """Append a confirmed trade or cashflow record."""
+        """Append a confirmed trade or cashflow record for trade.user_id."""
 
     @abstractmethod
-    def load_trades(self, limit: int = 200) -> pd.DataFrame:
-        """Load recent trade history."""
+    def load_trades(self, user_id: str = "admin", limit: int = 200) -> pd.DataFrame:
+        """Load recent trade history for a specific user."""
+
+    @abstractmethod
+    def load_all_trades(self, limit: int = 2000) -> pd.DataFrame:
+        """Admin helper: load recent trades across all users."""
 
     # --- Backtest Snapshots ---
     @abstractmethod

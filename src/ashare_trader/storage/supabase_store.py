@@ -13,6 +13,7 @@ from ashare_trader.models import (
     Position,
     TradeInstruction,
     TradeRecord,
+    UserAccount,
 )
 from ashare_trader.storage.base import StorageBackend
 
@@ -206,11 +207,56 @@ class SupabaseStorage(StorageBackend):
         resp = query.execute()
         return pd.DataFrame(resp.data or [])
 
-    def load_account(self, account_id: str = "default") -> AccountState:
+    def load_users(self) -> list[UserAccount]:
+        resp = self.client.table("app_users").select("*").order("created_at", desc=False).execute()
+        return [
+            UserAccount(
+                user_id=r["user_id"],
+                display_name=r["display_name"],
+                role=r["role"],
+                password_hash=r["password_hash"],
+                is_active=bool(r.get("is_active", True)),
+                created_at=datetime.fromisoformat(str(r["created_at"]).replace("Z", "+00:00"))
+                if r.get("created_at")
+                else None,
+            )
+            for r in (resp.data or [])
+        ]
+
+    def get_user(self, user_id: str) -> UserAccount | None:
+        resp = self.client.table("app_users").select("*").eq("user_id", user_id).limit(1).execute()
+        rows = resp.data or []
+        if not rows:
+            return None
+        r = rows[0]
+        return UserAccount(
+            user_id=r["user_id"],
+            display_name=r["display_name"],
+            role=r["role"],
+            password_hash=r["password_hash"],
+            is_active=bool(r.get("is_active", True)),
+            created_at=datetime.fromisoformat(str(r["created_at"]).replace("Z", "+00:00"))
+            if r.get("created_at")
+            else None,
+        )
+
+    def upsert_user(self, user: UserAccount) -> None:
+        self.client.table("app_users").upsert(
+            {
+                "user_id": user.user_id,
+                "display_name": user.display_name,
+                "role": user.role,
+                "password_hash": user.password_hash,
+                "is_active": bool(user.is_active),
+            },
+            on_conflict="user_id",
+        ).execute()
+
+    def load_account(self, account_id: str = "admin") -> AccountState:
         resp = (
             self.client.table("ledger_account")
             .select("*")
-            .eq("account_id", account_id)
+            .eq("user_id", account_id)
             .limit(1)
             .execute()
         )
@@ -219,25 +265,43 @@ class SupabaseStorage(StorageBackend):
             return AccountState(account_id=account_id)
         row = rows[0]
         return AccountState(
-            account_id=row["account_id"],
+            account_id=row["user_id"],
             initial_capital=float(row["initial_capital"]),
             cash=float(row["cash"]),
             updated_at=datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")),
         )
 
+    def load_all_accounts(self) -> dict[str, AccountState]:
+        resp = self.client.table("ledger_account").select("*").execute()
+        return {
+            row["user_id"]: AccountState(
+                account_id=row["user_id"],
+                initial_capital=float(row["initial_capital"]),
+                cash=float(row["cash"]),
+                updated_at=datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")),
+            )
+            for row in (resp.data or [])
+        }
+
     def save_account(self, account: AccountState) -> None:
         self.client.table("ledger_account").upsert(
             {
-                "account_id": account.account_id,
+                "user_id": account.account_id,
                 "initial_capital": float(account.initial_capital),
                 "cash": float(account.cash),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
-            on_conflict="account_id",
+            on_conflict="user_id",
         ).execute()
 
-    def load_positions(self) -> dict[str, Position]:
-        resp = self.client.table("ledger_positions").select("*").gt("shares", 0).execute()
+    def load_positions(self, user_id: str = "admin") -> dict[str, Position]:
+        resp = (
+            self.client.table("ledger_positions")
+            .select("*")
+            .eq("user_id", user_id)
+            .gt("shares", 0)
+            .execute()
+        )
         positions: dict[str, Position] = {}
         for row in resp.data or []:
             positions[row["symbol"]] = Position(
@@ -247,15 +311,39 @@ class SupabaseStorage(StorageBackend):
                 highest_price=float(row["highest_price"]),
                 stop_loss_price=float(row["stop_loss_price"]) if row.get("stop_loss_price") is not None else None,
                 updated_at=datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")),
+                user_id=row["user_id"],
             )
         return positions
 
+    def load_all_positions(self) -> dict[str, dict[str, Position]]:
+        resp = self.client.table("ledger_positions").select("*").gt("shares", 0).execute()
+        grouped: dict[str, dict[str, Position]] = {}
+        for row in resp.data or []:
+            uid = row["user_id"]
+            grouped.setdefault(uid, {})[row["symbol"]] = Position(
+                symbol=row["symbol"],
+                shares=int(row["shares"]),
+                avg_cost=float(row["avg_cost"]),
+                highest_price=float(row["highest_price"]),
+                stop_loss_price=float(row["stop_loss_price"]) if row.get("stop_loss_price") is not None else None,
+                updated_at=datetime.fromisoformat(str(row["updated_at"]).replace("Z", "+00:00")),
+                user_id=uid,
+            )
+        return grouped
+
     def upsert_position(self, position: Position) -> None:
         if position.shares <= 0:
-            self.client.table("ledger_positions").delete().eq("symbol", position.symbol).execute()
+            (
+                self.client.table("ledger_positions")
+                .delete()
+                .eq("user_id", position.user_id)
+                .eq("symbol", position.symbol)
+                .execute()
+            )
             return
         self.client.table("ledger_positions").upsert(
             {
+                "user_id": position.user_id,
                 "symbol": position.symbol,
                 "shares": int(position.shares),
                 "avg_cost": float(position.avg_cost),
@@ -263,12 +351,13 @@ class SupabaseStorage(StorageBackend):
                 "stop_loss_price": float(position.stop_loss_price) if position.stop_loss_price is not None else None,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             },
-            on_conflict="symbol",
+            on_conflict="user_id,symbol",
         ).execute()
 
     def record_trade(self, trade: TradeRecord) -> None:
         self.client.table("ledger_trades").insert(
             {
+                "user_id": trade.user_id,
                 "trade_date": trade.trade_date.isoformat(),
                 "symbol": trade.symbol,
                 "side": trade.side,
@@ -279,7 +368,18 @@ class SupabaseStorage(StorageBackend):
             }
         ).execute()
 
-    def load_trades(self, limit: int = 200) -> pd.DataFrame:
+    def load_trades(self, user_id: str = "admin", limit: int = 200) -> pd.DataFrame:
+        resp = (
+            self.client.table("ledger_trades")
+            .select("*")
+            .eq("user_id", user_id)
+            .order("id", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return pd.DataFrame(resp.data or [])
+
+    def load_all_trades(self, limit: int = 2000) -> pd.DataFrame:
         resp = (
             self.client.table("ledger_trades")
             .select("*")

@@ -1,4 +1,4 @@
-"""AShareTrader Cloud Terminal — Impeccable Dark Quant UI (Streamlit + Supabase)."""
+"""AShareTrader Cloud Terminal — Multi-User Dark Quant Dashboard (Streamlit + Supabase)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from ashare_trader.auth import AuthService
 from ashare_trader.config_loader import (
     load_backtest_config,
     load_strategies_config,
@@ -24,8 +25,10 @@ from ashare_trader.config_loader import (
 )
 from ashare_trader.data.calendar import cn_today
 from ashare_trader.data.manager import DataManager
+from ashare_trader.execution.adherence import build_admin_team_summary, compute_signal_adherence
 from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
-from ashare_trader.execution.signal_runner import compute_suggested_shares, run_daily_signal
+from ashare_trader.execution.signal_runner import compute_suggested_shares, run_shared_model_signal
+from ashare_trader.models import UserAccount
 from ashare_trader.notify.feishu import FeishuNotifier
 from ashare_trader.storage.factory import create_storage
 
@@ -43,17 +46,17 @@ IMPECCABLE_CSS = """<style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-    --bg-canvas: #0D0E11;          /* Warm charcoal, never pure #000 */
-    --bg-surface: #14161B;         /* Elevated surface */
-    --bg-surface-2: #1B1E25;       /* Subtle interactive surface */
-    --hairline: #242830;           /* 1px crisp structural divider */
+    --bg-canvas: #0D0E11;
+    --bg-surface: #14161B;
+    --bg-surface-2: #1B1E25;
+    --hairline: #242830;
     --hairline-strong: #323743;
-    --ink-primary: #ECEEF2;        /* High-contrast warm off-white */
-    --ink-secondary: #98A0AE;      /* Muted metadata */
+    --ink-primary: #ECEEF2;
+    --ink-secondary: #98A0AE;
     --ink-tertiary: #656D7C;
-    --accent-gold: #D4A359;        /* Restraint financial amber accent */
-    --cn-up: #E05A5A;              /* A-Share positive / buy */
-    --cn-down: #36B37E;            /* A-Share negative / sell / healthy */
+    --accent-gold: #D4A359;
+    --cn-up: #E05A5A;
+    --cn-down: #36B37E;
     --warn: #E5A93C;
 }
 
@@ -63,9 +66,7 @@ html, body, [class*="css"] {
     -webkit-font-smoothing: antialiased;
 }
 
-.stApp {
-    background-color: var(--bg-canvas);
-}
+.stApp { background-color: var(--bg-canvas); }
 
 .block-container {
     padding-top: 1.8rem !important;
@@ -75,13 +76,12 @@ html, body, [class*="css"] {
 #MainMenu, footer { visibility: hidden; }
 header[data-testid="stHeader"] { background: transparent; }
 
-/* Sidebar */
 section[data-testid="stSidebar"] {
     background-color: var(--bg-surface);
     border-right: 1px solid var(--hairline);
 }
 .brand-block {
-    padding: 0.15rem 0 1.1rem 0;
+    padding: 0.15rem 0 1.05rem 0;
     border-bottom: 1px solid var(--hairline);
     margin-bottom: 1rem;
 }
@@ -111,11 +111,28 @@ section[data-testid="stSidebar"] {
     color: var(--ink-secondary);
     line-height: 1.75;
 }
-.sys-meta span {
+.sys-meta span { color: var(--ink-primary); }
+
+.user-chip {
+    background: var(--bg-surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: 0.65rem 0.85rem;
+    margin-bottom: 0.85rem;
+}
+.user-chip-name {
+    font-size: 0.9rem;
+    font-weight: 600;
     color: var(--ink-primary);
 }
+.user-chip-role {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    color: var(--accent-gold);
+    margin-top: 0.15rem;
+}
 
-/* Editorial Page Header (strong modular type hierarchy) */
 .page-header {
     display: flex;
     justify-content: space-between;
@@ -141,7 +158,6 @@ section[data-testid="stSidebar"] {
     color: var(--ink-secondary);
 }
 
-/* Unified Metrics Strip (anti-slop alternative to 4 repetitive hero cards) */
 .metrics-strip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -158,9 +174,7 @@ section[data-testid="stSidebar"] {
     padding: 1.05rem 1.25rem;
     border-right: 1px solid var(--hairline);
 }
-.metric-cell:last-child {
-    border-right: none;
-}
+.metric-cell:last-child { border-right: none; }
 .metric-label {
     font-size: 0.72rem;
     font-weight: 500;
@@ -190,7 +204,6 @@ section[data-testid="stSidebar"] {
 .val-warn { color: var(--warn); }
 .val-gold { color: var(--accent-gold); }
 
-/* Order Blotter (clean hairline rows, zero side-tab cliché) */
 .blotter {
     background: var(--bg-surface);
     border: 1px solid var(--hairline);
@@ -261,30 +274,50 @@ def _inject_secrets_to_env() -> None:
         pass
 
 
-def _check_write_auth() -> bool:
-    app_pwd = os.getenv("APP_PASSWORD", "").strip()
-    if not app_pwd:
-        return True
-    if st.session_state.get("write_unlocked", False):
-        return True
-    with st.sidebar.expander("写操作鉴权 · 只读"):
-        pwd = st.text_input("管理口令", type="password", key="pwd_input")
-        if st.button("解锁写入", use_container_width=True):
-            if pwd == app_pwd:
-                st.session_state["write_unlocked"] = True
-                st.rerun()
-            else:
-                st.error("口令不正确")
-    return False
-
-
 _inject_secrets_to_env()
 storage = create_storage()
+auth_service = AuthService(storage)
+auth_service.ensure_default_admin()
+
+
+# ------------------------------------------------------------------------------
+# Login Gate
+# ------------------------------------------------------------------------------
+def _render_login_gate() -> UserAccount:
+    current = st.session_state.get("auth_user")
+    if isinstance(current, UserAccount):
+        return current
+
+    _, center, _ = st.columns([1.2, 1.4, 1.2])
+    with center:
+        st.markdown(
+            '<div style="margin-top:3.5rem;margin-bottom:1.2rem;">'
+            '<div class="brand-kicker">QUANT TERMINAL · SIGN IN</div>'
+            '<div style="font-size:1.85rem;font-weight:700;letter-spacing:-0.03em;color:#ECEEF2;">AShareTrader</div>'
+            '<div style="font-size:0.86rem;color:#98A0AE;margin-top:0.3rem;">跨资产 ETF 趋势信号与个人实盘账本</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form", border=True):
+            uid = st.text_input("用户名", placeholder="例如 admin")
+            pwd = st.text_input("密码", type="password")
+            submitted = st.form_submit_button("登录终端", type="primary", use_container_width=True)
+            if submitted:
+                user = auth_service.authenticate(uid, pwd)
+                if user is not None:
+                    st.session_state["auth_user"] = user
+                    st.rerun()
+                else:
+                    st.error("用户名或密码错误，或账号已停用。")
+    st.stop()
+
+
+auth_user = _render_login_gate()
+is_admin = auth_user.role == "admin"
+
 universe = load_universe()
 strat_cfg = load_strategies_config()
 bt_cfg = load_backtest_config()
-ledger = LedgerService(storage=storage)
-
 all_syms = [a.symbol for a in universe.all_assets]
 asset_map = universe.asset_map
 
@@ -299,7 +332,7 @@ def _cached_close_panel(symbols_tuple: tuple[str, ...], backend_tag: str) -> pd.
 @st.cache_data(ttl=120, show_spinner=False)
 def _cached_latest_signals(backend_tag: str) -> pd.DataFrame:
     _ = backend_tag
-    return create_storage().load_latest_signals(limit=50)
+    return create_storage().load_latest_signals(limit=200)
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -309,9 +342,9 @@ def _cached_health_logs(backend_tag: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=120, show_spinner=False)
-def _cached_trades(backend_tag: str) -> pd.DataFrame:
+def _cached_user_trades(user_id: str, backend_tag: str) -> pd.DataFrame:
     _ = backend_tag
-    return create_storage().load_trades(limit=500)
+    return create_storage().load_trades(user_id=user_id, limit=500)
 
 
 def _fmt_symbol(sym: str) -> str:
@@ -319,7 +352,7 @@ def _fmt_symbol(sym: str) -> str:
     return f"{a.name} ({sym})" if a else sym
 
 
-def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -> go.Figure:
+def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 340) -> go.Figure:
     fig.update_layout(
         template="plotly_dark",
         height=height,
@@ -346,7 +379,6 @@ def _style_plotly(fig: go.Figure, title: str, y_title: str, height: int = 360) -
 
 
 def _render_metrics_strip(items: list[dict[str, str]]) -> None:
-    """Render zero-indentation unified metrics strip."""
     parts = ['<div class="metrics-strip">']
     for item in items:
         cls = item.get("value_class", "")
@@ -376,7 +408,7 @@ def _render_section_head(title: str, note: str = "") -> None:
 
 
 # ------------------------------------------------------------------------------
-# Sidebar Navigation & Telemetry
+# Sidebar Navigation, User Identity & Admin Perspective Switcher
 # ------------------------------------------------------------------------------
 close_df = _cached_close_panel(tuple(all_syms), storage.backend_name)
 latest_mkt_date = close_df.index.max().strftime("%Y-%m-%d") if not close_df.empty else "—"
@@ -395,11 +427,34 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-page = st.sidebar.radio(
-    "导航",
-    ["交易终端", "系统状态"],
-    label_visibility="collapsed",
+role_tag = "ADMIN · 管理员" if is_admin else "MEMBER · 交易员"
+st.sidebar.markdown(
+    f'<div class="user-chip">'
+    f'<div class="user-chip-name">{auth_user.display_name} ({auth_user.user_id})</div>'
+    f'<div class="user-chip-role">{role_tag}</div>'
+    f'</div>',
+    unsafe_allow_html=True,
 )
+
+nav_options = ["交易终端", "团队总览与管理", "系统状态"] if is_admin else ["交易终端", "系统状态"]
+page = st.sidebar.radio("导航", nav_options, label_visibility="collapsed")
+
+# Admin can inspect any member's trading terminal in read-only observation mode
+viewing_user_id = auth_user.user_id
+viewing_user_label = f"{auth_user.display_name} ({auth_user.user_id})"
+all_users = storage.load_users() if is_admin else [auth_user]
+if is_admin and page == "交易终端" and len(all_users) > 1:
+    user_labels = {u.user_id: f"{u.display_name} ({u.user_id})" for u in all_users}
+    selected_uid = st.sidebar.selectbox(
+        "查看用户视角",
+        list(user_labels.keys()),
+        index=list(user_labels.keys()).index(auth_user.user_id) if auth_user.user_id in user_labels else 0,
+        format_func=lambda k: user_labels[k],
+    )
+    viewing_user_id = selected_uid
+    viewing_user_label = user_labels[selected_uid]
+
+is_self_view = viewing_user_id == auth_user.user_id
 
 st.sidebar.markdown(
     f'<div style="border-top:1px solid #242830;margin:1rem 0;padding-top:0.9rem;" class="sys-meta">'
@@ -411,19 +466,25 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-if st.sidebar.button("刷新云端数据", use_container_width=True):
+c_ref, c_out = st.sidebar.columns(2)
+if c_ref.button("刷新缓存", use_container_width=True):
     st.cache_data.clear()
     st.rerun()
-
-can_write = _check_write_auth()
+if c_out.button("退出登录", use_container_width=True):
+    st.session_state.pop("auth_user", None)
+    st.rerun()
 
 
 # ==============================================================================
-# Page 1: Unified Trading Terminal (Signals + Live Performance + Ledger)
+# Page 1: Unified Trading Terminal (Shared Signals + Per-User Ledger & Analytics)
 # ==============================================================================
 if page == "交易终端":
-    _render_page_header("交易终端", f"AS OF {latest_mkt_date} · TREND-ATR 100%")
+    header_meta = f"USER: {viewing_user_id.upper()} · AS OF {latest_mkt_date} · TREND-ATR"
+    _render_page_header("交易终端", header_meta)
+    if not is_self_view:
+        st.info(f"当前正在以管理员视角查看 **{viewing_user_label}** 的账户数据（只读观察模式）。")
 
+    ledger = LedgerService(storage=storage, user_id=viewing_user_id)
     account = ledger.get_account()
     positions = ledger.get_positions()
     total_eq = ledger.total_equity(latest_prices)
@@ -440,7 +501,11 @@ if page == "交易终端":
             (df_sig["signal_date"] == latest_sig_date) & (df_sig["run_mode"] == latest_run_mode)
         ].copy()
 
-    action_cnt = int(latest_batch["action"].isin(["BUY", "SELL"]).sum()) if not latest_batch.empty else 0
+    df_user_trades = _cached_user_trades(viewing_user_id, storage.backend_name)
+    adh_summary, adh_detail = compute_signal_adherence(df_sig, df_user_trades, as_of_date=cn_today())
+    exec_rate = adh_summary["execution_rate"]
+    exec_rate_str = f"{exec_rate:.0%}" if exec_rate is not None else "—"
+
     near_stop_cnt = sum(
         1
         for sym, pos in positions.items()
@@ -463,10 +528,10 @@ if page == "交易终端":
                 "sub": f"现金 ¥{account.cash:,.0f}",
             },
             {
-                "label": "今日调仓指令",
-                "value": f"{action_cnt} 笔",
-                "sub": f"信号日 {latest_batch['signal_date'].iloc[0]}" if not latest_batch.empty else "等待计算",
-                "value_class": "val-gold" if action_cnt > 0 else "",
+                "label": "信号执行率",
+                "value": exec_rate_str,
+                "sub": f"已执行 {adh_summary['executed_count']} / 漏单 {adh_summary['missed_count']} / 待办 {adh_summary['pending_count']}",
+                "value_class": "val-gold" if exec_rate is not None else "",
             },
             {
                 "label": "止损预警",
@@ -477,36 +542,53 @@ if page == "交易终端":
         ]
     )
 
+    # --- Shared Signals Personalized by Current User's Equity & Holdings ---
     _render_section_head(
-        "执行指令清单",
-        f"MODE: {latest_batch['run_mode'].iloc[0].upper()}" if not latest_batch.empty else "NO SIGNAL",
+        "今日执行指令清单（已按本人资金换算）",
+        f"SIGNAL {latest_batch['signal_date'].iloc[0]} · {latest_batch['run_mode'].iloc[0].upper()}"
+        if not latest_batch.empty
+        else "NO SIGNAL",
     )
     if latest_batch.empty:
-        st.info("暂无落库信号，点击下方「重算信号」即可立即生成。")
+        st.info("暂无公共策略信号。")
     else:
-        rows_html = ['<div class="blotter">']
+        target_map: dict[str, dict[str, Any]] = {}
         for _, row in latest_batch.iterrows():
-            act = str(row["action"])
-            sym = str(row["symbol"])
-            w_tgt = float(row["target_weight"])
-            ref_px_raw = row.get("ref_price")
+            target_map[str(row["symbol"])] = row.to_dict()
+
+        # Combine shared targets with user's actual positions so user gets exact BUY/SELL/HOLD
+        involved_syms = sorted(set(target_map.keys()) | set(positions.keys()))
+        rows_html = ['<div class="blotter">']
+        for sym in involved_syms:
+            meta = target_map.get(sym, {})
+            w_tgt = float(meta.get("target_weight", 0.0))
+            ref_px_raw = meta.get("ref_price")
             ref_px = float(ref_px_raw) if pd.notna(ref_px_raw) else latest_prices.get(sym)
-            stop_px = row.get("stop_loss_price")
-            reason = str(row.get("reason") or "按模型目标权重执行")
+            stop_px = meta.get("stop_loss_price")
+            reason = str(meta.get("reason") or ("策略已移出目标池，建议清仓" if w_tgt <= 1e-4 else "按模型目标权重执行"))
+
+            cur_sh = positions[sym].shares if sym in positions else 0
+            cur_w = (cur_sh * ref_px / total_eq) if (ref_px and total_eq > 0) else 0.0
+            diff_w = w_tgt - cur_w
+
+            if w_tgt <= 1e-4 and cur_sh > 0:
+                act = "SELL"
+                sugg_sh = cur_sh
+            elif diff_w > bt_cfg.rebalance_threshold:
+                sugg_sh = compute_suggested_shares("BUY", w_tgt, cur_sh, total_eq, ref_px, bt_cfg.lot_size)
+                act = "BUY" if sugg_sh > 0 else "HOLD"
+            elif diff_w < -bt_cfg.rebalance_threshold:
+                sugg_sh = compute_suggested_shares("SELL", w_tgt, cur_sh, total_eq, ref_px, bt_cfg.lot_size)
+                act = "SELL" if sugg_sh > 0 else "HOLD"
+            else:
+                act = "HOLD"
+                sugg_sh = 0
+
             pill_cls = {"BUY": "pill-buy", "SELL": "pill-sell"}.get(act, "pill-hold")
             pill_txt = {"BUY": "BUY 买入/加仓", "SELL": "SELL 卖出/减仓"}.get(act, "HOLD 持有")
             ref_str = f"参考价 {ref_px:.3f}" if ref_px is not None else "参考价 —"
             stop_str = f"止损线 {float(stop_px):.3f}" if pd.notna(stop_px) and float(stop_px) > 0 else "避险底仓"
 
-            cur_sh = positions[sym].shares if sym in positions else 0
-            sugg_sh = compute_suggested_shares(
-                action=act,
-                target_weight=w_tgt,
-                current_shares=cur_sh,
-                total_equity=total_eq,
-                ref_price=ref_px,
-                lot_size=bt_cfg.lot_size,
-            )
             if act in ("BUY", "SELL") and sugg_sh > 0 and ref_px:
                 est_amt = sugg_sh * ref_px
                 top_right = (
@@ -515,7 +597,7 @@ if page == "交易终端":
                     f' · 目标仓位 {w_tgt:.1%}'
                 )
             else:
-                top_right = f'目标仓位 {w_tgt:.1%}'
+                top_right = f'当前 {cur_w:.1%} → 目标 {w_tgt:.1%}'
 
             rows_html.append(
                 f'<div class="blotter-row">'
@@ -533,40 +615,47 @@ if page == "交易终端":
         rows_html.append("</div>")
         st.markdown("".join(rows_html), unsafe_allow_html=True)
 
-    # Compact action bar beneath blotter
-    act_c1, act_c2, _ = st.columns([1.4, 1.6, 4.0])
-    with act_c1:
-        if st.button("重算信号", type="primary", use_container_width=True):
-            try:
-                instructions, _ = run_daily_signal(
-                    storage=storage,
-                    universe=universe,
-                    strat_cfg=strat_cfg,
-                    run_mode="intraday",
-                    lot_size=bt_cfg.lot_size,
-                    rebalance_threshold=bt_cfg.rebalance_threshold,
-                    persist=can_write,
-                )
-                st.cache_data.clear()
-                st.success(f"已完成计算（{len(instructions)} 条）")
-                st.rerun()
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"计算失败：{exc}")
-    with act_c2:
-        notifier = FeishuNotifier()
-        if can_write and notifier.is_configured:
-            if st.button("推送测试飞书", use_container_width=True):
+    # Admin-only shared signal trigger bar
+    if is_admin:
+        act_c1, act_c2, _ = st.columns([1.6, 1.6, 3.8])
+        with act_c1:
+            if st.button("重算公共信号", type="primary", use_container_width=True):
                 try:
-                    ins, lp = run_daily_signal(storage, universe, strat_cfg, run_mode="intraday", persist=False)
-                    card = notifier.build_signal_card(ins, ledger.get_positions(), lp, asset_map, None, "intraday")
+                    instructions, _ = run_shared_model_signal(
+                        storage=storage,
+                        universe=universe,
+                        strat_cfg=strat_cfg,
+                        run_mode="intraday",
+                        lot_size=bt_cfg.lot_size,
+                        rebalance_threshold=bt_cfg.rebalance_threshold,
+                        ref_capital=bt_cfg.initial_capital,
+                        persist=True,
+                    )
+                    st.cache_data.clear()
+                    st.success(f"公共信号已刷新（{len(instructions)} 条）")
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    st.error(f"计算失败：{exc}")
+        with act_c2:
+            notifier = FeishuNotifier()
+            if notifier.is_configured and st.button("群发测试飞书", use_container_width=True):
+                try:
+                    ins, lp = run_shared_model_signal(
+                        storage=storage,
+                        universe=universe,
+                        strat_cfg=strat_cfg,
+                        run_mode="intraday",
+                        persist=False,
+                    )
+                    card = notifier.build_signal_card(ins, {}, lp, asset_map, None, "intraday")
                     notifier.send_card(card)
-                    st.success("测试卡片已发送")
+                    st.success("群飞书测试卡片已发送")
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"发送失败：{exc}")
 
-    _render_section_head("实盘策略表现", "LIVE NAV VS CSI 300")
-    df_live_trades = _cached_trades(storage.backend_name)
-    live_eq_df = compute_live_equity_curve(df_live_trades, close_df, initial_capital=account.initial_capital)
+    # --- Per-User Live Strategy Performance ---
+    _render_section_head("实盘策略表现", f"{viewing_user_id.upper()} LIVE NAV VS CSI 300")
+    live_eq_df = compute_live_equity_curve(df_user_trades, close_df, initial_capital=account.initial_capital)
     if live_eq_df.empty or len(live_eq_df) < 2:
         st.caption("录入首笔实盘成交并经历至少 2 个交易日后，此处将自动绘制你的实盘净值曲线、最大回撤与同期沪深 300 基准对比。")
     else:
@@ -611,16 +700,19 @@ if page == "交易终端":
                     line={"color": "#656D7C", "width": 1.4, "dash": "dot"},
                 )
             )
-        st.plotly_chart(_style_plotly(fig_live, "实盘净值走势 vs 沪深300", "净值 (起点=1.0)", height=320), use_container_width=True)
+        st.plotly_chart(_style_plotly(fig_live, "实盘净值走势 vs 沪深300", "净值 (起点=1.0)", height=310), use_container_width=True)
 
-    _render_section_head("持仓与资金账本", "POSITIONS · LEDGER · TRAILING STOP")
-    tab_pos, tab_entry, tab_hist = st.tabs(["持仓与动态止损", "录入成交 / 出入金", "历史流水"])
+    # --- Per-User Ledger, Signal Adherence & Trade Entry ---
+    _render_section_head("持仓、信号执行与账本", "POSITIONS · ADHERENCE · LEDGER")
+    tab_pos, tab_adh, tab_entry, tab_hist = st.tabs(
+        ["持仓与动态止损", "信号执行统计", "录入成交与本金设置", "历史流水"]
+    )
 
     with tab_pos:
         col_tbl, col_pie = st.columns([1.65, 1])
         with col_tbl:
             if not positions:
-                st.caption("当前为空仓状态。在右侧「录入成交 / 出入金」记入实际成交后，此处将实时追踪每只 ETF 的动态止损安全垫。")
+                st.caption("当前为空仓状态。可在「录入成交与本金设置」中设定初始本金并登记成交。")
             else:
                 pos_rows: list[dict[str, Any]] = []
                 for sym, pos in positions.items():
@@ -653,9 +745,8 @@ if page == "交易终端":
             alloc = [{"资产": "可用现金", "金额": account.cash}]
             for sym, pos in positions.items():
                 alloc.append({"资产": _fmt_symbol(sym), "金额": pos.shares * latest_prices.get(sym, pos.avg_cost)})
-            alloc_df = pd.DataFrame(alloc)
             fig_pie = px.pie(
-                alloc_df,
+                pd.DataFrame(alloc),
                 names="资产",
                 values="金额",
                 hole=0.58,
@@ -672,13 +763,69 @@ if page == "交易终端":
             )
             st.plotly_chart(fig_pie, use_container_width=True)
 
-    with tab_entry:
-        if not can_write:
-            st.info("当前为只读模式，请在左侧栏「写操作鉴权」输入管理口令后解锁。")
+    with tab_adh:
+        slip_txt = f"{adh_summary['avg_slippage_bps']:+.1f} bps" if adh_summary["avg_slippage_bps"] is not None else "—"
+        st.markdown(
+            f'<div class="sys-meta" style="margin-bottom:0.8rem;">'
+            f'匹配规则：按录入的真实交易日（信号日 ~ +3 自然日，支持补录） · '
+            f'执行率 <span class="val-gold">{exec_rate_str}</span> · '
+            f'平均滑点 <span>{slip_txt}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        if adh_detail.empty:
+            st.caption("暂无可统计的历史调仓信号。")
         else:
+            disp_adh = adh_detail.copy()
+            disp_adh["标的"] = disp_adh["symbol"].map(_fmt_symbol)
+            disp_adh["状态"] = disp_adh["status"].map(
+                {"EXECUTED": "已执行", "MISSED": "未执行", "PENDING": "待执行"}
+            )
+            st.dataframe(
+                disp_adh[
+                    ["signal_date", "标的", "action", "ref_price", "trade_date", "actual_price", "actual_shares", "slippage_bps", "状态"]
+                ].rename(
+                    columns={
+                        "signal_date": "信号日",
+                        "action": "方向",
+                        "ref_price": "参考价",
+                        "trade_date": "成交日",
+                        "actual_price": "实际成交价",
+                        "actual_shares": "成交份数",
+                        "slippage_bps": "滑点(bps)",
+                    }
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+    with tab_entry:
+        if not is_self_view:
+            st.info("查看他人账户时处于只读模式，切换回本人视角后可录入交易。")
+        else:
+            # Initial capital setup (editable directly before first trade)
+            if df_user_trades.empty:
+                with st.form("init_cap_form", border=True):
+                    st.caption("首次使用请先设定你的实盘初始本金（录入首笔成交后需改用下方出入金调整）")
+                    ic1, ic2 = st.columns([2, 1])
+                    new_cap = ic1.number_input(
+                        "初始本金 (¥)",
+                        min_value=1000.0,
+                        step=10000.0,
+                        value=float(account.initial_capital),
+                    )
+                    if ic2.form_submit_button("保存初始本金", use_container_width=True):
+                        try:
+                            ledger.set_initial_capital(float(new_cap))
+                            st.cache_data.clear()
+                            st.success(f"初始本金已设为 ¥{new_cap:,.0f}")
+                            st.rerun()
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(str(exc))
+
             with st.form("trade_form", border=True):
                 fc1, fc2, fc3 = st.columns(3)
-                t_date = fc1.date_input("成交日期", value=cn_today())
+                t_date = fc1.date_input("真实成交日期（支持补录）", value=cn_today())
                 t_side = fc2.selectbox("操作类型", ["BUY", "SELL", "DEPOSIT", "WITHDRAW"])
                 t_sym = fc3.selectbox("标的（出入金可忽略）", all_syms, format_func=_fmt_symbol)
                 fc4, fc5, fc6 = st.columns(3)
@@ -705,18 +852,160 @@ if page == "交易终端":
                             note=t_note,
                         )
                         st.cache_data.clear()
-                        st.success("已持久化写入数据库")
+                        st.success("已持久化写入本人账本")
                         st.rerun()
 
     with tab_hist:
-        if df_live_trades.empty:
+        if df_user_trades.empty:
             st.caption("暂无成交流水记录。")
         else:
-            st.dataframe(df_live_trades, use_container_width=True, hide_index=True)
+            st.dataframe(df_user_trades, use_container_width=True, hide_index=True)
 
 
 # ==============================================================================
-# Page 2: System Status & Data Source Health
+# Page 2 (Admin Only): Team Analytics & User Management
+# ==============================================================================
+elif page == "团队总览与管理" and is_admin:
+    _render_page_header("团队绩效与用户管理", "ADMIN CONSOLE · ALL MEMBERS")
+
+    users_list = storage.load_users()
+    all_accounts = storage.load_all_accounts()
+    all_positions = storage.load_all_positions()
+    all_trades_df = storage.load_all_trades(limit=2000)
+    df_sig = _cached_latest_signals(storage.backend_name)
+
+    team_df = build_admin_team_summary(
+        users=users_list,
+        accounts=all_accounts,
+        positions_by_user=all_positions,
+        all_trades_df=all_trades_df,
+        signals_df=df_sig,
+        close_df=close_df,
+        latest_prices=latest_prices,
+        as_of_date=cn_today(),
+    )
+
+    active_n = int(team_df["is_active"].sum()) if not team_df.empty else 0
+    total_aum = float(team_df["total_equity"].sum()) if not team_df.empty else 0.0
+    avg_ret = float(team_df["live_return"].mean()) if not team_df.empty else 0.0
+    valid_rates = team_df["execution_rate"].dropna() if not team_df.empty else pd.Series(dtype=float)
+    avg_exec = f"{valid_rates.mean():.0%}" if not valid_rates.empty else "—"
+
+    _render_metrics_strip(
+        [
+            {"label": "活跃用户数", "value": f"{active_n} / {len(team_df)}", "sub": "支持随时增停成员"},
+            {"label": "团队合计规模", "value": f"¥{total_aum:,.0f}", "sub": "全部成员总资产"},
+            {
+                "label": "平均实盘收益率",
+                "value": f"{avg_ret:+.2%}",
+                "sub": "全员等权均值",
+                "value_class": "val-up" if avg_ret > 0 else ("val-down" if avg_ret < 0 else ""),
+            },
+            {"label": "平均信号执行率", "value": avg_exec, "sub": "按真实交易日匹配", "value_class": "val-gold"},
+        ]
+    )
+
+    tab_overview, tab_create, tab_manage = st.tabs(["全员绩效与执行排行", "新增用户", "密码重置与启停"])
+
+    with tab_overview:
+        if team_df.empty:
+            st.info("暂无用户数据。")
+        else:
+            show_team = pd.DataFrame(
+                {
+                    "用户": team_df["display_name"] + " (" + team_df["user_id"] + ")",
+                    "角色": team_df["role"],
+                    "状态": team_df["is_active"].map(lambda x: "启用" if x else "停用"),
+                    "初始本金": team_df["initial_capital"].map(lambda x: f"¥{x:,.0f}"),
+                    "当前总资产": team_df["total_equity"].map(lambda x: f"¥{x:,.0f}"),
+                    "实盘收益率": team_df["live_return"].map(lambda x: f"{x:+.2%}"),
+                    "最大回撤": team_df["max_drawdown"].map(lambda x: f"{x:.2%}"),
+                    "持仓数": team_df["position_count"],
+                    "成交笔数": team_df["trade_count"],
+                    "信号执行率": team_df["execution_rate"].map(lambda x: f"{x:.0%}" if pd.notna(x) else "—"),
+                    "平均滑点": team_df["avg_slippage_bps"].map(lambda x: f"{x:+.1f} bps" if pd.notna(x) else "—"),
+                }
+            )
+            st.dataframe(show_team, use_container_width=True, hide_index=True)
+
+            if len(team_df) >= 2:
+                sorted_t = team_df.sort_values("live_return", ascending=True)
+                fig_team = go.Figure(
+                    go.Bar(
+                        y=sorted_t["display_name"] + " (" + sorted_t["user_id"] + ")",
+                        x=sorted_t["live_return"] * 100.0,
+                        orientation="h",
+                        marker_color=["#E05A5A" if r >= 0 else "#36B37E" for r in sorted_t["live_return"]],
+                        text=sorted_t["live_return"].map(lambda r: f"{r:+.2%}"),
+                        textposition="outside",
+                        textfont={"color": "#98A0AE", "family": "IBM Plex Mono", "size": 11},
+                    )
+                )
+                fig_team = _style_plotly(fig_team, "全员实盘收益率对比 (%)", "", height=max(240, 46 * len(team_df)))
+                fig_team.update_layout(showlegend=False, margin={"l": 16, "r": 64, "t": 46, "b": 24})
+                st.plotly_chart(fig_team, use_container_width=True)
+
+    with tab_create:
+        with st.form("create_user_form", border=True):
+            u1, u2, u3 = st.columns(3)
+            new_uid = u1.text_input("登录用户名（英文/数字）", placeholder="如 alice")
+            new_name = u2.text_input("显示昵称", placeholder="如 张三")
+            new_role = u3.selectbox("角色", ["user", "admin"])
+            u4, u5 = st.columns(2)
+            new_pwd = u4.text_input("初始密码（至少4位）", type="password")
+            new_cap = u5.number_input("初始本金 (¥)", min_value=1000.0, step=10000.0, value=100000.0)
+            if st.form_submit_button("创建用户", type="primary", use_container_width=True):
+                try:
+                    auth_service.create_user(
+                        user_id=new_uid,
+                        display_name=new_name,
+                        password=new_pwd,
+                        role=new_role,
+                        initial_capital=float(new_cap),
+                    )
+                    st.cache_data.clear()
+                    st.success(f"用户 `{new_uid}` 已创建，初始本金 ¥{new_cap:,.0f}")
+                    st.rerun()
+                except Exception as exc:  # noqa: BLE001
+                    st.error(str(exc))
+
+    with tab_manage:
+        if not users_list:
+            st.caption("暂无用户。")
+        else:
+            u_map = {u.user_id: u for u in users_list}
+            target_uid = st.selectbox(
+                "选择要管理的用户",
+                list(u_map.keys()),
+                format_func=lambda k: f"{u_map[k].display_name} ({k}) · {'启用' if u_map[k].is_active else '停用'}",
+            )
+            mc1, mc2 = st.columns(2)
+            with mc1:
+                with st.form("reset_pwd_form", border=True):
+                    rpwd = st.text_input("新密码（至少4位）", type="password")
+                    if st.form_submit_button("重置密码", use_container_width=True):
+                        try:
+                            auth_service.reset_password(target_uid, rpwd)
+                            st.success(f"已重置 `{target_uid}` 的登录密码")
+                        except Exception as exc:  # noqa: BLE001
+                            st.error(str(exc))
+            with mc2:
+                with st.form("toggle_active_form", border=True):
+                    cur_active = u_map[target_uid].is_active
+                    st.caption(f"当前状态：{'启用中' if cur_active else '已停用'}")
+                    btn_label = "停用该账号" if cur_active else "重新启用该账号"
+                    if st.form_submit_button(btn_label, use_container_width=True):
+                        if target_uid == auth_user.user_id and cur_active:
+                            st.error("不能停用当前登录的管理员自己。")
+                        else:
+                            auth_service.set_active(target_uid, not cur_active)
+                            st.cache_data.clear()
+                            st.success(f"已更新 `{target_uid}` 状态")
+                            st.rerun()
+
+
+# ==============================================================================
+# Page 3: System Status & Data Source Health
 # ==============================================================================
 elif page == "系统状态":
     _render_page_header("系统与数据源状态", "AKSHARE PRIMARY · BAOSTOCK FALLBACK")
@@ -741,7 +1030,6 @@ elif page == "系统状态":
             ]
         )
 
-        # Horizontal bar chart: full Chinese ETF names remain crisp and legible
         sorted_h = latest_per_sym.sort_values("latency_ms", ascending=True)
         fig_lat = go.Figure(
             go.Bar(

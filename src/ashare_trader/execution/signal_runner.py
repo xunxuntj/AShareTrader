@@ -65,16 +65,19 @@ def compute_suggested_shares(
     return 0
 
 
-def run_daily_signal(
+def run_shared_model_signal(
     storage: StorageBackend,
     universe: UniverseConfig,
     strat_cfg: dict[str, Any],
     run_mode: str = "intraday",
     lot_size: int = 100,
     rebalance_threshold: float = 0.03,
+    ref_capital: float = 100000.0,
+    rolling_days: int = 250,
     persist: bool = True,
 ) -> tuple[list[TradeInstruction], dict[str, float]]:
-    """Compute latest target weights, diff against ledger positions, and optionally persist."""
+    """Stateless rolling model signal (Plan 1): rolls strategy over recent ~1Y history to get zero-drift
+    theoretical yesterday vs today weights, trailing stops, and per-100k reference shares."""
     dm = DataManager(storage=storage)
     all_syms = [a.symbol for a in universe.all_assets]
     close_df = dm.load_price_panel(all_syms, field="close")
@@ -90,7 +93,97 @@ def run_daily_signal(
         if not s.empty:
             latest_prices[sym] = float(s.iloc[-1])
 
-    ledger = LedgerService(storage)
+    _, combined = build_default_strategies(universe.safe_haven.symbol, strat_cfg)
+    combined.reset_state()
+
+    n_rows = len(close_df)
+    start_idx = max(60, n_rows - rolling_days)
+    if start_idx >= n_rows:
+        start_idx = max(0, n_rows - 1)
+
+    prev_weights: dict[str, float] = {}
+    latest_signal = None
+    for idx in range(start_idx, n_rows):
+        sig = combined.generate_signal(
+            close_df=close_df.iloc[: idx + 1],
+            high_df=high_df.iloc[: idx + 1],
+            low_df=low_df.iloc[: idx + 1],
+            current_weights=prev_weights,
+        )
+        if idx < n_rows - 1:
+            prev_weights = dict(sig.target_weights)
+        latest_signal = sig
+
+    assert latest_signal is not None
+    instructions: list[TradeInstruction] = []
+    involved = sorted(set(prev_weights.keys()) | set(latest_signal.target_weights.keys()))
+    for sym in involved:
+        prev_w = prev_weights.get(sym, 0.0)
+        tgt_w = latest_signal.target_weights.get(sym, 0.0)
+        px = latest_prices.get(sym)
+        diff_w = tgt_w - prev_w
+
+        if tgt_w <= 1e-4 and prev_w > 1e-4:
+            action = "SELL"
+            sugg_shares = int((ref_capital * prev_w / px) // lot_size) * lot_size if px and px > 0 else 0
+        elif diff_w > rebalance_threshold:
+            sugg_shares = int((ref_capital * diff_w / px) // lot_size) * lot_size if px and px > 0 else 0
+            action = "BUY" if sugg_shares > 0 else "HOLD"
+        elif diff_w < -rebalance_threshold:
+            sugg_shares = int((ref_capital * abs(diff_w) / px) // lot_size) * lot_size if px and px > 0 else 0
+            action = "SELL" if sugg_shares > 0 else "HOLD"
+        else:
+            action = "HOLD"
+            sugg_shares = int((ref_capital * tgt_w / px) // lot_size) * lot_size if px and px > 0 else 0
+
+        instructions.append(
+            TradeInstruction(
+                signal_date=latest_signal.signal_date,
+                run_mode=run_mode,  # type: ignore[arg-type]
+                strategy_name=latest_signal.strategy_name,
+                symbol=sym,
+                action=action,  # type: ignore[arg-type]
+                target_weight=round(tgt_w, 4),
+                ref_price=round(px, 4) if px is not None else None,
+                stop_loss_price=latest_signal.stop_losses.get(sym),
+                suggested_shares=sugg_shares,
+                reason=latest_signal.reasons.get(sym, "退出持仓"),
+            )
+        )
+
+    if persist and instructions:
+        storage.save_signals(instructions)
+
+    return instructions, latest_prices
+
+
+def run_daily_signal(
+    storage: StorageBackend,
+    universe: UniverseConfig,
+    strat_cfg: dict[str, Any],
+    run_mode: str = "intraday",
+    lot_size: int = 100,
+    rebalance_threshold: float = 0.03,
+    persist: bool = True,
+    user_id: str = "admin",
+) -> tuple[list[TradeInstruction], dict[str, float]]:
+    """Compute latest target weights diffed against a specific user's ledger positions."""
+    dm = DataManager(storage=storage)
+    all_syms = [a.symbol for a in universe.all_assets]
+    close_df = dm.load_price_panel(all_syms, field="close")
+    high_df = dm.load_price_panel(all_syms, field="high")
+    low_df = dm.load_price_panel(all_syms, field="low")
+
+    if close_df.empty:
+        raise RuntimeError("No market data found in storage. Run sync-data first.")
+
+    latest_prices: dict[str, float] = {}
+    for sym in close_df.columns:
+        s = close_df[sym].dropna()
+        if not s.empty:
+            latest_prices[sym] = float(s.iloc[-1])
+
+    ledger = LedgerService(storage, user_id=user_id)
     positions = ledger.get_positions()
     total_eq = ledger.total_equity(latest_prices)
     current_weights = {

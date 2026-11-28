@@ -94,8 +94,20 @@ class TradeInstruction:
 
 
 @dataclass
+class UserAccount:
+    """Application user account for lightweight team authentication."""
+
+    user_id: str
+    display_name: str
+    role: Literal["admin", "user"] = "user"
+    password_hash: str = ""
+    is_active: bool = True
+    created_at: datetime | None = None
+
+
+@dataclass
 class Position:
-    """Live or simulated position tracked in ledger_positions."""
+    """Live or simulated position tracked in ledger_positions (isolated by user_id)."""
 
     symbol: str
     shares: int
@@ -103,16 +115,21 @@ class Position:
     highest_price: float
     stop_loss_price: float | None = None
     updated_at: datetime | None = None
+    user_id: str = "admin"
 
 
 @dataclass
 class AccountState:
-    """Cash and initial capital state in ledger_account."""
+    """Cash and initial capital state in ledger_account (isolated by user_id)."""
 
-    account_id: str = "default"
+    account_id: str = "admin"
     initial_capital: float = 100000.0
     cash: float = 100000.0
     updated_at: datetime | None = None
+
+    @property
+    def user_id(self) -> str:
+        return self.account_id
 
 
 @dataclass
@@ -126,6 +143,7 @@ class TradeRecord:
     price: float
     fee: float = 0.0
     note: str = ""
+    user_id: str = "admin"
 
 
 @dataclass

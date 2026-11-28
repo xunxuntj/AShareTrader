@@ -101,17 +101,28 @@ def compute_live_equity_curve(
 
 
 class LedgerService:
-    """High-level ledger operations backed by StorageBackend (Supabase or local)."""
+    """High-level per-user ledger operations backed by StorageBackend (Supabase or local)."""
 
-    def __init__(self, storage: StorageBackend, account_id: str = "default") -> None:
+    def __init__(self, storage: StorageBackend, user_id: str = "admin") -> None:
         self.storage = storage
-        self.account_id = account_id
+        self.user_id = user_id
 
     def get_account(self) -> AccountState:
-        return self.storage.load_account(self.account_id)
+        return self.storage.load_account(self.user_id)
 
     def get_positions(self) -> dict[str, Position]:
-        return self.storage.load_positions()
+        return self.storage.load_positions(self.user_id)
+
+    def set_initial_capital(self, amount: float) -> AccountState:
+        """Set initial capital directly before any trades exist (resets cash accordingly)."""
+        if amount <= 0:
+            raise ValueError("初始本金必须大于 0。")
+        trades = self.storage.load_trades(user_id=self.user_id, limit=1)
+        if not trades.empty:
+            raise ValueError("已有成交记录，请使用「出入金（DEPOSIT/WITHDRAW）」调整资金，避免破坏历史净值。")
+        acc = AccountState(account_id=self.user_id, initial_capital=float(amount), cash=float(amount))
+        self.storage.save_account(acc)
+        return acc
 
     def total_equity(self, latest_prices: dict[str, float]) -> float:
         account = self.get_account()
@@ -133,7 +144,7 @@ class LedgerService:
         stop_loss_price: float | None = None,
         note: str = "",
     ) -> None:
-        """Record a confirmed BUY/SELL/DEPOSIT/WITHDRAW and update cash & position."""
+        """Record a confirmed BUY/SELL/DEPOSIT/WITHDRAW for self.user_id."""
         account = self.get_account()
         positions = self.get_positions()
 
@@ -166,6 +177,7 @@ class LedgerService:
                     avg_cost=round(new_avg, 4),
                     highest_price=round(new_high, 4),
                     stop_loss_price=round(new_stop, 4) if new_stop is not None else None,
+                    user_id=self.user_id,
                 )
             )
         elif side == "SELL":
@@ -182,6 +194,7 @@ class LedgerService:
                         avg_cost=prev.avg_cost,
                         highest_price=prev.highest_price,
                         stop_loss_price=prev.stop_loss_price,
+                        user_id=self.user_id,
                     )
                 )
         else:
@@ -196,6 +209,7 @@ class LedgerService:
                 price=price,
                 fee=fee,
                 note=note,
+                user_id=self.user_id,
             )
         )
 
@@ -204,7 +218,7 @@ class LedgerService:
         latest_prices: dict[str, float],
         strategy_stops: dict[str, float],
     ) -> dict[str, Position]:
-        """Ratchet up highest_price and stop_loss_price on existing holdings."""
+        """Ratchet up highest_price and stop_loss_price on existing holdings for self.user_id."""
         positions = self.get_positions()
         for sym, pos in positions.items():
             px = latest_prices.get(sym)
@@ -219,5 +233,6 @@ class LedgerService:
                 pos.stop_loss_price = round(cand_stop, 4)
                 changed = True
             if changed:
+                pos.user_id = self.user_id
                 self.storage.upsert_position(pos)
         return self.get_positions()
