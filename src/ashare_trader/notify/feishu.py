@@ -151,7 +151,7 @@ class FeishuNotifier:
                     color = "grey"
 
                 ref_str = f"{ins.ref_price:.3f}" if ins.ref_price else "—"
-                sh_str = f"每10万 {ins.suggested_shares:,}份" if ins.suggested_shares > 0 else "—"
+                sh_str = f"建议 {ins.suggested_shares:,} 份" if ins.suggested_shares > 0 else "—"
 
                 elements.append(
                     {
@@ -244,7 +244,7 @@ class FeishuNotifier:
                 "elements": [
                     {
                         "tag": "plain_text",
-                        "content": "TrendATR 模型 · 份数按 10 万本金折算，登录终端按本人资产同步",
+                        "content": "TrendATR 模型 · 以上份数按 10 万基准计算，登录终端自动按本人资产换算",
                     }
                 ],
             }
@@ -256,7 +256,7 @@ class FeishuNotifier:
                 "config": {"wide_screen_mode": True},
                 "header": {
                     "title": {"tag": "plain_text", "content": "AShareTrader · 每日信号"},
-                    "subtitle": {"tag": "plain_text", "content": f"{signal_date} · {mode_label}"},
+                    "subtitle": {"tag": "plain_text", "content": f"{signal_date} · {mode_label} · 10万基准"},
                     "template": header_color,
                 },
                 "elements": elements,
