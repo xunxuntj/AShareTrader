@@ -48,20 +48,20 @@ def compute_entry_guidance(
     stop_loss_price: float | None,
     is_safe_haven: bool = False,
 ) -> dict[str, str]:
-    """Compute human-actionable entry price range and empty-account guidance for Feishu & Web UI."""
+    """Compute crisp, zero-fluff entry range and stop-loss guidance for Feishu & Web UI."""
     if is_safe_haven or (stop_loss_price is None or stop_loss_price <= 0):
         if action == "SELL":
-            return {"action_label": "卖出/减仓", "guidance": "避险底仓调出，按现价附近卖出换仓"}
+            return {"action_label": "卖出换仓", "guidance": "货币ETF T+0 卖出，释放资金切换趋势标的"}
         return {
-            "action_label": "买入/避险停泊" if action == "BUY" else "持有 / 空仓可买",
-            "guidance": "避险货币底仓，无需止损，现价附近随时可买",
+            "action_label": "避险停泊",
+            "guidance": "货币ETF，T+0 随时换仓，无需止损",
         }
 
     if ref_price is None or ref_price <= 0:
-        return {"action_label": action, "guidance": f"止损线 {stop_loss_price:.3f}"}
+        return {"action_label": action, "guidance": f"止损 {stop_loss_price:.3f}"}
 
     if action == "SELL":
-        return {"action_label": "卖出/清仓", "guidance": f"趋势破位或触发止损，参考价 {ref_price:.3f} 附近离场"}
+        return {"action_label": "触发离场", "guidance": f"跌破止损或均线转弱，现价 {ref_price:.3f} 附近清仓"}
 
     risk_pct = max(0.0, (ref_price - stop_loss_price) / ref_price)
     low_px = max(stop_loss_price * 1.005, ref_price * 0.985)
@@ -71,25 +71,24 @@ def compute_entry_guidance(
         buy_low = max(stop_loss_price * 1.005, ref_price * 0.99)
         buy_high = ref_price * 1.01
         return {
-            "action_label": "买入/加仓",
-            "guidance": f"建议入场区间 {buy_low:.3f} ~ {buy_high:.3f} | 止损 {stop_loss_price:.3f} (距止损 {risk_pct:.1%})",
+            "action_label": "突破买入",
+            "guidance": f"入场区间 {buy_low:.3f}–{buy_high:.3f} · 止损 {stop_loss_price:.3f} (-{risk_pct:.1%})",
         }
 
-    # action == "HOLD": provide clear guidance for empty-account users joining mid-trend
     if risk_pct <= 0.065:
         return {
-            "action_label": "持有 / 空仓可买",
-            "guidance": f"建议入场区间 {low_px:.3f} ~ {max(low_px, high_px):.3f} | 止损 {stop_loss_price:.3f} (距止损 {risk_pct:.1%})",
+            "action_label": "持有 · 空仓可买",
+            "guidance": f"入场区间 {low_px:.3f}–{max(low_px, high_px):.3f} · 止损 {stop_loss_price:.3f} (-{risk_pct:.1%})",
         }
     if risk_pct <= 0.095:
         return {
-            "action_label": "持有 / 空仓半仓",
-            "guidance": f"可回踩 {low_px:.3f} ~ {ref_price:.3f} 轻仓试水 | 止损 {stop_loss_price:.3f} (距止损 {risk_pct:.1%})",
+            "action_label": "持有 · 空仓半仓",
+            "guidance": f"回踩 {low_px:.3f}–{ref_price:.3f} 轻仓 · 止损 {stop_loss_price:.3f} (-{risk_pct:.1%})",
         }
     wait_px = stop_loss_price * 1.07
     return {
-        "action_label": "持有 / 空仓勿追",
-        "guidance": f"偏离止损较远，空仓建议等回踩 ≤ {wait_px:.3f} | 止损 {stop_loss_price:.3f} (距止损 {risk_pct:.1%})",
+        "action_label": "持有 · 空仓勿追",
+        "guidance": f"等回踩 ≤ {wait_px:.3f} · 止损 {stop_loss_price:.3f} (-{risk_pct:.1%})",
     }
 
 

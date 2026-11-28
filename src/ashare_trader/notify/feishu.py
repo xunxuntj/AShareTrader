@@ -52,13 +52,12 @@ class FeishuNotifier:
     ) -> dict[str, Any]:
         """Build a clean, structured Feishu interactive card using native column_set and semantic colors."""
         signal_date = instructions[0].signal_date.isoformat() if instructions else "N/A"
-        mode_label = "尾盘实时信号 · 14:35" if run_mode == "intraday" else "收盘归档确认 · 16:30"
+        mode_label = "14:35 尾盘" if run_mode == "intraday" else "16:30 收盘"
 
         has_action = any(ins.action in ("BUY", "SELL") for ins in instructions)
         failed_health = [h for h in (health_records or []) if h.status == "failed"]
         header_color = "red" if failed_health else ("orange" if has_action else "indigo")
 
-        # Compute summary allocation (risky vs safe-haven)
         safe_weight = 0.0
         risky_weight = 0.0
         for ins in instructions:
@@ -72,17 +71,17 @@ class FeishuNotifier:
             ok_cnt = sum(1 for h in health_records if h.status == "ok")
             deg_cnt = sum(1 for h in health_records if h.status == "degraded")
             fail_cnt = len(failed_health)
+            total_cnt = len(health_records)
             if fail_cnt > 0:
                 health_val = f"<font color='red'>{fail_cnt} 异常</font>"
             elif deg_cnt > 0:
-                health_val = f"<font color='orange'>备源 {deg_cnt}</font>"
+                health_val = f"<font color='orange'>备源 {deg_cnt}/{total_cnt}</font>"
             else:
-                health_val = f"<font color='green'>正常 ({ok_cnt})</font>"
+                health_val = f"<font color='green'>{ok_cnt}/{total_cnt}</font>"
         else:
             health_val = "<font color='green'>正常</font>"
 
         elements: list[dict[str, Any]] = [
-            # 1. Top 3-column KPI overview bar
             {
                 "tag": "column_set",
                 "flex_mode": "trisect",
@@ -97,7 +96,7 @@ class FeishuNotifier:
                         "elements": [
                             {
                                 "tag": "markdown",
-                                "content": f"<font color='grey'>风险资产仓位</font>\n**{risky_weight:.0%}**",
+                                "content": f"<font color='grey'>风险仓位</font>\n**{risky_weight:.0%}**",
                             }
                         ],
                     },
@@ -109,7 +108,7 @@ class FeishuNotifier:
                         "elements": [
                             {
                                 "tag": "markdown",
-                                "content": f"<font color='grey'>避险底仓</font>\n**{safe_weight:.0%}**",
+                                "content": f"<font color='grey'>货币避险</font>\n**{safe_weight:.0%}**",
                             }
                         ],
                     },
@@ -121,7 +120,7 @@ class FeishuNotifier:
                         "elements": [
                             {
                                 "tag": "markdown",
-                                "content": f"<font color='grey'>行情数据</font>\n**{health_val}**",
+                                "content": f"<font color='grey'>数据状态</font>\n**{health_val}**",
                             }
                         ],
                     },
@@ -130,7 +129,6 @@ class FeishuNotifier:
             {"tag": "hr"},
         ]
 
-        # 2. Per-asset structured blocks (risky assets first, safe-haven last)
         sorted_ins = sorted(
             instructions,
             key=lambda x: (
@@ -140,7 +138,7 @@ class FeishuNotifier:
         )
 
         if not sorted_ins:
-            elements.append({"tag": "markdown", "content": "今日无调仓指令，维持现有组合。"})
+            elements.append({"tag": "markdown", "content": "今日无调仓指令。"})
         else:
             for idx, ins in enumerate(sorted_ins):
                 asset = asset_map.get(ins.symbol)
@@ -153,9 +151,8 @@ class FeishuNotifier:
                     color = "grey"
 
                 ref_str = f"{ins.ref_price:.3f}" if ins.ref_price else "—"
-                sh_str = f"每10万约 **{ins.suggested_shares:,}** 份" if ins.suggested_shares > 0 else "—"
+                sh_str = f"每10万 {ins.suggested_shares:,}份" if ins.suggested_shares > 0 else "—"
 
-                # Row A: Asset name + Action badge (left) | Target Weight + per-100k shares (right)
                 elements.append(
                     {
                         "tag": "column_set",
@@ -172,7 +169,7 @@ class FeishuNotifier:
                                         "tag": "markdown",
                                         "content": (
                                             f"**{name}** <font color='grey'>{ins.symbol}</font>\n"
-                                            f"<font color='{color}'>**[{guide['action_label']}]**</font>"
+                                            f"<font color='{color}'>**{guide['action_label']}**</font>"
                                         ),
                                     }
                                 ],
@@ -186,7 +183,7 @@ class FeishuNotifier:
                                     {
                                         "tag": "markdown",
                                         "text_align": "right",
-                                        "content": f"目标仓位 **{ins.target_weight:.1%}**\n<font color='grey'>{sh_str}</font>",
+                                        "content": f"**{ins.target_weight:.1%}**\n<font color='grey'>{sh_str}</font>",
                                     }
                                 ],
                             },
@@ -194,21 +191,16 @@ class FeishuNotifier:
                     }
                 )
 
-                # Row B: Clean guidance & reference price box
                 elements.append(
                     {
                         "tag": "markdown",
-                        "content": (
-                            f"参考价 `{ref_str}` · {guide['guidance']}\n"
-                            f"<font color='grey'>策略理由：{ins.reason or '按模型权重执行'}</font>"
-                        ),
+                        "content": f"<font color='grey'>现价</font> `{ref_str}` · {guide['guidance']}",
                     }
                 )
 
                 if idx < len(sorted_ins) - 1:
                     elements.append({"tag": "hr"})
 
-        # 3. Optional personal position stop-loss section (omitted in shared group broadcast when positions={})
         stop_lines: list[str] = []
         for sym, pos in positions.items():
             if pos.shares <= 0:
@@ -220,17 +212,16 @@ class FeishuNotifier:
             if pos.stop_loss_price and px > 0:
                 cushion = px / pos.stop_loss_price - 1.0
                 stop_lines.append(
-                    f"• **{label}** {pos.shares:,}份 | 现价 `{px:.3f}` ({pnl_pct:+.1%}) | "
-                    f"止损 `{pos.stop_loss_price:.3f}` (安全垫 `{cushion:+.1%}`)"
+                    f"• **{label}** {pos.shares:,}份 · 现价 `{px:.3f}` ({pnl_pct:+.1%}) · "
+                    f"止损 `{pos.stop_loss_price:.3f}` ({cushion:+.1%})"
                 )
             else:
-                stop_lines.append(f"• **{label}** {pos.shares:,}份 | 现价 `{px:.3f}` ({pnl_pct:+.1%})")
+                stop_lines.append(f"• **{label}** {pos.shares:,}份 · 现价 `{px:.3f}` ({pnl_pct:+.1%})")
 
         if stop_lines:
             elements.append({"tag": "hr"})
-            elements.append({"tag": "markdown", "content": "**持仓止损警戒**\n" + "\n".join(stop_lines)})
+            elements.append({"tag": "markdown", "content": "**持仓止损**\n" + "\n".join(stop_lines)})
 
-        # 4. Action button to open Web Terminal + clean footer note
         elements.append({"tag": "hr"})
         if self.dashboard_url:
             elements.append(
@@ -239,7 +230,7 @@ class FeishuNotifier:
                     "actions": [
                         {
                             "tag": "button",
-                            "text": {"tag": "plain_text", "content": "打开 Web 终端查看个人精确份数 & 登记成交"},
+                            "text": {"tag": "plain_text", "content": "查看个人份数 & 记账"},
                             "type": "primary",
                             "url": self.dashboard_url,
                         }
@@ -253,7 +244,7 @@ class FeishuNotifier:
                 "elements": [
                     {
                         "tag": "plain_text",
-                        "content": "AShareTrader · TrendATR 跨资产模型 · 群内按10万基准换算，实际请按个人资金执行",
+                        "content": "TrendATR 模型 · 份数按 10 万本金折算，登录终端按本人资产同步",
                     }
                 ],
             }
@@ -264,7 +255,7 @@ class FeishuNotifier:
             "card": {
                 "config": {"wide_screen_mode": True},
                 "header": {
-                    "title": {"tag": "plain_text", "content": "AShareTrader 每日策略信号"},
+                    "title": {"tag": "plain_text", "content": "AShareTrader · 每日信号"},
                     "subtitle": {"tag": "plain_text", "content": f"{signal_date} · {mode_label}"},
                     "template": header_color,
                 },

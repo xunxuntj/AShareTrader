@@ -155,11 +155,11 @@ def test_entry_guidance_covers_safe_haven_and_risk_tiers():
     assert "无需止损" in g_cash["guidance"]
 
     g_near = compute_entry_guidance("HOLD", 1.180, 1.125, is_safe_haven=False)  # 4.7% risk
-    assert g_near["action_label"] == "持有 / 空仓可买"
-    assert "建议入场区间" in g_near["guidance"]
+    assert g_near["action_label"] == "持有 · 空仓可买"
+    assert "入场区间" in g_near["guidance"]
 
     g_mid = compute_entry_guidance("HOLD", 1.200, 1.104, is_safe_haven=False)  # 8.0% risk
-    assert g_mid["action_label"] == "持有 / 空仓半仓"
+    assert g_mid["action_label"] == "持有 · 空仓半仓"
 
     g_far = compute_entry_guidance("HOLD", 1.300, 1.100, is_safe_haven=False)  # 15.4% risk
-    assert g_far["action_label"] == "持有 / 空仓勿追"
+    assert g_far["action_label"] == "持有 · 空仓勿追"
