@@ -11,6 +11,7 @@ from typing import Any
 
 import requests
 
+from ashare_trader.execution.signal_runner import compute_entry_guidance
 from ashare_trader.models import Asset, DataHealthRecord, Position, TradeInstruction
 
 
@@ -49,21 +50,23 @@ class FeishuNotifier:
         failed_health = [h for h in (health_records or []) if h.status == "failed"]
         header_color = "red" if failed_health else ("orange" if has_action else "blue")
 
-        # Section 1: Trading Instructions (shared model baseline, per-100k reference shares)
+        # Section 1: Trading Instructions (shared model baseline, per-100k reference shares + entry range)
         action_lines: list[str] = []
         for ins in instructions:
             asset = asset_map.get(ins.symbol)
             label = f"{asset.name}({ins.symbol})" if asset else ins.symbol
-            badge = {"BUY": "🟢 买入/加仓", "SELL": "🔴 卖出/减仓", "HOLD": "⚪ 持有"}.get(ins.action, ins.action)
+            is_safe = bool(asset and asset.category == "cash")
+            guide = compute_entry_guidance(ins.action, ins.ref_price, ins.stop_loss_price, is_safe_haven=is_safe)
+            icon = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(ins.action, "⚪")
             px_txt = f"参考价 {ins.ref_price:.3f}" if ins.ref_price else ""
-            stop_txt = f" | 止损线 {ins.stop_loss_price:.3f}" if ins.stop_loss_price else ""
-            sh_txt = f" | 每10万参考 {ins.suggested_shares} 份" if ins.suggested_shares > 0 else ""
+            sh_txt = f" | 每10万参考 {ins.suggested_shares:,} 份" if ins.suggested_shares > 0 else ""
             action_lines.append(
-                f"- **{badge}** {label} → 目标仓位 `{ins.target_weight:.1%}` {px_txt}{sh_txt}{stop_txt}\n"
-                f"  理由：{ins.reason or '按模型权重执行'}"
+                f"- **{icon} {guide['action_label']}** {label} → 目标仓位 `{ins.target_weight:.1%}` {px_txt}{sh_txt}\n"
+                f"  操作指引：{guide['guidance']}\n"
+                f"  策略理由：{ins.reason or '按模型权重执行'}"
             )
         action_md = "\n".join(action_lines) if action_lines else "今日无调仓指令，维持现有组合。"
-        action_md += "\n\n*提示：以上为公共策略理论信号（按10万基准换算参考份数），请登录 Web 终端查看本人账户精确买卖份数并登记成交。*"
+        action_md += "\n\n*提示：以上为公共策略信号（每10万参考份数），登录 Web 终端可按本人资金自动换算精确份数并登记成交。*"
 
         # Section 2: Current Position Stop-Loss Monitor
         stop_lines: list[str] = []

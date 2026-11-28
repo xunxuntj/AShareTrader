@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ashare_trader.execution.ledger import LedgerService
-from ashare_trader.execution.signal_runner import run_daily_signal
+from ashare_trader.execution.signal_runner import compute_entry_guidance, run_daily_signal
 from ashare_trader.models import Asset, UniverseConfig
 from ashare_trader.storage.local_store import LocalStorage
 
@@ -148,3 +148,18 @@ def test_sub_lot_rebalance_downgrades_to_hold(tmp_path):
     ins_map = {i.symbol: i for i in instructions}
     assert ins_map["511880"].action == "HOLD"
     assert ins_map["511880"].suggested_shares == 0
+
+
+def test_entry_guidance_covers_safe_haven_and_risk_tiers():
+    g_cash = compute_entry_guidance("HOLD", 100.999, None, is_safe_haven=True)
+    assert "无需止损" in g_cash["guidance"]
+
+    g_near = compute_entry_guidance("HOLD", 1.180, 1.125, is_safe_haven=False)  # 4.7% risk
+    assert g_near["action_label"] == "持有 / 空仓可买"
+    assert "建议入场区间" in g_near["guidance"]
+
+    g_mid = compute_entry_guidance("HOLD", 1.200, 1.104, is_safe_haven=False)  # 8.0% risk
+    assert g_mid["action_label"] == "持有 / 空仓半仓"
+
+    g_far = compute_entry_guidance("HOLD", 1.300, 1.100, is_safe_haven=False)  # 15.4% risk
+    assert g_far["action_label"] == "持有 / 空仓勿追"

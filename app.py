@@ -27,7 +27,11 @@ from ashare_trader.data.calendar import cn_today
 from ashare_trader.data.manager import DataManager
 from ashare_trader.execution.adherence import build_admin_team_summary, compute_signal_adherence
 from ashare_trader.execution.ledger import LedgerService, compute_live_equity_curve
-from ashare_trader.execution.signal_runner import compute_suggested_shares, run_shared_model_signal
+from ashare_trader.execution.signal_runner import (
+    compute_entry_guidance,
+    compute_suggested_shares,
+    run_shared_model_signal,
+)
 from ashare_trader.models import UserAccount
 from ashare_trader.notify.feishu import FeishuNotifier
 from ashare_trader.storage.factory import create_storage
@@ -584,10 +588,20 @@ if page == "交易终端":
                 act = "HOLD"
                 sugg_sh = 0
 
+            is_safe = sym == universe.safe_haven.symbol
+            stop_val = float(stop_px) if pd.notna(stop_px) and float(stop_px) > 0 else None
+            # For an empty/underweight user viewing a BUY diff on an ongoing trend, use shared action for mid-trend guidance
+            shared_act = str(meta.get("action") or act)
+            guide = compute_entry_guidance(
+                action=shared_act if (act == "BUY" and shared_act == "HOLD") else act,
+                ref_price=ref_px,
+                stop_loss_price=stop_val,
+                is_safe_haven=is_safe,
+            )
+
             pill_cls = {"BUY": "pill-buy", "SELL": "pill-sell"}.get(act, "pill-hold")
-            pill_txt = {"BUY": "BUY 买入/加仓", "SELL": "SELL 卖出/减仓"}.get(act, "HOLD 持有")
+            pill_txt = f"{act} {guide['action_label']}"
             ref_str = f"参考价 {ref_px:.3f}" if ref_px is not None else "参考价 —"
-            stop_str = f"止损线 {float(stop_px):.3f}" if pd.notna(stop_px) and float(stop_px) > 0 else "避险底仓"
 
             if act in ("BUY", "SELL") and sugg_sh > 0 and ref_px:
                 est_amt = sugg_sh * ref_px
@@ -601,14 +615,15 @@ if page == "交易终端":
 
             rows_html.append(
                 f'<div class="blotter-row">'
-                f'<div style="min-width:220px;flex:1;">'
+                f'<div style="min-width:240px;flex:1;">'
                 f'<span class="pill {pill_cls}">{pill_txt}</span>'
                 f'<span style="margin-left:0.65rem;font-weight:600;font-size:0.98rem;color:#ECEEF2;">{_fmt_symbol(sym)}</span>'
-                f'<div style="font-size:0.82rem;color:#98A0AE;margin-top:0.35rem;">理由：{reason}</div>'
+                f'<div class="mono" style="font-size:0.8rem;color:#D4A359;margin-top:0.35rem;">{guide["guidance"]}</div>'
+                f'<div style="font-size:0.78rem;color:#98A0AE;margin-top:0.2rem;">策略理由：{reason}</div>'
                 f'</div>'
                 f'<div style="text-align:right;white-space:nowrap;">'
                 f'<div class="mono" style="font-size:1.02rem;font-weight:600;color:#ECEEF2;">{top_right}</div>'
-                f'<div class="mono" style="font-size:0.76rem;color:#98A0AE;margin-top:0.2rem;">{ref_str} · {stop_str}</div>'
+                f'<div class="mono" style="font-size:0.76rem;color:#98A0AE;margin-top:0.2rem;">{ref_str}</div>'
                 f'</div>'
                 f'</div>'
             )
