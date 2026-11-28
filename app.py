@@ -36,6 +36,7 @@ from ashare_trader.execution.signal_runner import (
 )
 from ashare_trader.models import UserAccount
 from ashare_trader.notify.feishu import FeishuNotifier
+from ashare_trader.research_links import resolve_fullscanner_link
 from ashare_trader.storage.factory import create_storage
 
 # ------------------------------------------------------------------------------
@@ -270,6 +271,20 @@ section[data-testid="stSidebar"] {
     color: var(--ink-secondary);
     margin-top: 0.2rem;
 }
+.fs-link {
+    display: inline-block;
+    margin-top: 0.45rem;
+    padding: 0.2rem 0;
+    font-size: 0.78rem;
+    color: var(--ink-secondary) !important;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: color 140ms ease, border-color 140ms ease;
+}
+.fs-link:hover {
+    color: var(--accent-gold) !important;
+    border-bottom-color: var(--accent-gold);
+}
 
 @media (max-width: 900px) {
     .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -302,6 +317,10 @@ section[data-testid="stSidebar"] {
         border-top: 1px dashed var(--hairline);
     }
     .blotter-qty { font-size: 0.92rem; }
+    .fs-link {
+        padding: 0.4rem 0;
+        font-size: 0.82rem;
+    }
 }
 
 .pill {
@@ -745,6 +764,7 @@ if page == "交易终端":
             else:
                 top_right = f'当前 {cur_w:.1%} → 目标 {w_tgt:.1%}'
 
+            fs_url, fs_label = resolve_fullscanner_link(sym)
             rows_html.append(
                 f'<div class="blotter-row">'
                 f'<div class="blotter-main">'
@@ -752,6 +772,7 @@ if page == "交易终端":
                 f'<span class="blotter-title">{_fmt_symbol(sym)}</span>'
                 f'<div class="blotter-guide">{guide["guidance"]}</div>'
                 f'<div class="blotter-reason">{reason}</div>'
+                f'<a class="fs-link" href="{fs_url}" target="_blank" rel="noopener noreferrer">{fs_label}</a>'
                 f'</div>'
                 f'<div class="blotter-side">'
                 f'<div class="blotter-qty">{top_right}</div>'
