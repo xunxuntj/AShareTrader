@@ -332,15 +332,15 @@ def _render_login_gate() -> UserAccount:
             '<div style="margin-top:3.5rem;margin-bottom:1.2rem;">'
             '<div class="brand-kicker">QUANT TERMINAL · SIGN IN</div>'
             '<div style="font-size:1.85rem;font-weight:700;letter-spacing:-0.03em;color:#ECEEF2;">AShareTrader</div>'
-            '<div style="font-size:0.86rem;color:#98A0AE;margin-top:0.3rem;">跨资产 ETF 趋势信号与个人实盘账本</div>'
+            '<div style="font-size:0.86rem;color:#98A0AE;margin-top:0.3rem;">跨资产 ETF 量化终端</div>'
             '</div>',
             unsafe_allow_html=True,
         )
         with st.form("login_form", border=True):
-            uid = st.text_input("用户名", placeholder="例如 admin")
+            uid = st.text_input("用户名", placeholder="admin")
             pwd = st.text_input("密码", type="password")
-            remember = st.checkbox("记住我（30 天免登录，飞书点击直达）", value=True)
-            submitted = st.form_submit_button("登录终端", type="primary", use_container_width=True)
+            remember = st.checkbox("30 天内免登录", value=True)
+            submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
             if submitted:
                 user = auth_service.authenticate(uid, pwd)
                 if user is not None:
