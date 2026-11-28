@@ -45,7 +45,7 @@ st.set_page_config(
     page_title="AShareTrader · 量化交易终端",
     page_icon="AT",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
 IMPECCABLE_CSS = """<style>
@@ -167,43 +167,44 @@ section[data-testid="stSidebar"] {
 .metrics-strip {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    background: var(--bg-surface);
+    gap: 1px;
+    background: var(--hairline);
     border: 1px solid var(--hairline);
     border-radius: 10px;
-    margin-bottom: 1.5rem;
+    margin-bottom: 1.4rem;
     overflow: hidden;
 }
-@media (max-width: 960px) {
-    .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 .metric-cell {
-    padding: 1.05rem 1.25rem;
-    border-right: 1px solid var(--hairline);
+    background: var(--bg-surface);
+    padding: 1rem 1.2rem;
+    min-width: 0;
 }
-.metric-cell:last-child { border-right: none; }
 .metric-label {
     font-size: 0.72rem;
     font-weight: 500;
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--ink-secondary);
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.4rem;
 }
 .metric-value {
     font-family: 'IBM Plex Mono', monospace;
     font-variant-numeric: tabular-nums;
-    font-size: 1.48rem;
+    font-size: 1.42rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     color: var(--ink-primary);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     line-height: 1.2;
 }
 .metric-sub {
     font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.76rem;
+    font-size: 0.75rem;
     color: var(--ink-secondary);
-    margin-top: 0.35rem;
+    margin-top: 0.3rem;
+    word-break: break-word;
 }
 .val-up { color: var(--cn-up); }
 .val-down { color: var(--cn-down); }
@@ -221,14 +222,87 @@ section[data-testid="stSidebar"] {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    padding: 1rem 1.25rem;
+    gap: 0.85rem;
+    padding: 0.95rem 1.2rem;
     border-bottom: 1px solid var(--hairline);
     transition: background-color 140ms ease;
 }
 .blotter-row:last-child { border-bottom: none; }
 .blotter-row:hover { background-color: var(--bg-surface-2); }
+.blotter-main {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.blotter-side {
+    flex: 0 0 auto;
+    text-align: right;
+    white-space: nowrap;
+}
+.blotter-title {
+    margin-left: 0.55rem;
+    font-weight: 600;
+    font-size: 0.96rem;
+    color: var(--ink-primary);
+}
+.blotter-guide {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    color: var(--accent-gold);
+    margin-top: 0.35rem;
+    line-height: 1.45;
+}
+.blotter-reason {
+    font-size: 0.77rem;
+    color: var(--ink-secondary);
+    margin-top: 0.2rem;
+    line-height: 1.4;
+}
+.blotter-qty {
+    font-family: 'IBM Plex Mono', monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ink-primary);
+}
+.blotter-ref {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--ink-secondary);
+    margin-top: 0.2rem;
+}
+
+@media (max-width: 900px) {
+    .metrics-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+    .block-container {
+        padding: 1rem 0.85rem 2.2rem 0.85rem !important;
+    }
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.3rem;
+        margin-bottom: 1rem;
+    }
+    .page-title { font-size: 1.35rem; }
+    .metric-cell { padding: 0.8rem 0.85rem; }
+    .metric-value { font-size: 1.18rem; }
+    .metric-sub { font-size: 0.7rem; }
+    .blotter-row {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: 0.9rem 0.95rem;
+        gap: 0.55rem;
+    }
+    .blotter-side {
+        width: 100%;
+        text-align: left;
+        white-space: normal;
+        padding-top: 0.5rem;
+        border-top: 1px dashed var(--hairline);
+    }
+    .blotter-qty { font-size: 0.92rem; }
+}
 
 .pill {
     display: inline-block;
@@ -326,31 +400,33 @@ def _render_login_gate() -> UserAccount:
             st.session_state["auth_user"] = restored
             return restored
 
-    _, center, _ = st.columns([1.2, 1.4, 1.2])
-    with center:
-        st.markdown(
-            '<div style="margin-top:3.5rem;margin-bottom:1.2rem;">'
-            '<div class="brand-kicker">QUANT TERMINAL · SIGN IN</div>'
-            '<div style="font-size:1.85rem;font-weight:700;letter-spacing:-0.03em;color:#ECEEF2;">AShareTrader</div>'
-            '<div style="font-size:0.86rem;color:#98A0AE;margin-top:0.3rem;">跨资产 ETF 量化终端</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        with st.form("login_form", border=True):
-            uid = st.text_input("用户名", placeholder="admin")
-            pwd = st.text_input("密码", type="password")
-            remember = st.checkbox("30 天内免登录", value=True)
-            submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
-            if submitted:
-                user = auth_service.authenticate(uid, pwd)
-                if user is not None:
-                    st.session_state["auth_user"] = user
-                    st.session_state["just_logged_out"] = False
-                    if remember:
-                        st.session_state["pending_remember_token"] = create_session_token(user, ttl_days=30)
-                    st.rerun()
-                else:
-                    st.error("用户名或密码错误，或账号已停用。")
+    st.markdown(
+        '<div style="max-width:400px;margin:2.2rem auto 1rem auto;">'
+        '<div class="brand-kicker">QUANT TERMINAL</div>'
+        '<div style="font-size:1.75rem;font-weight:700;letter-spacing:-0.03em;color:#ECEEF2;">AShareTrader</div>'
+        '<div style="font-size:0.84rem;color:#98A0AE;margin-top:0.25rem;">跨资产 ETF 量化终端</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<style>div[data-testid="stForm"]{max-width:400px;margin:0 auto;}</style>',
+        unsafe_allow_html=True,
+    )
+    with st.form("login_form", border=True):
+        uid = st.text_input("用户名")
+        pwd = st.text_input("密码", type="password")
+        remember = st.checkbox("30 天内免登录", value=True)
+        submitted = st.form_submit_button("登录", type="primary", use_container_width=True)
+        if submitted:
+            user = auth_service.authenticate(uid, pwd)
+            if user is not None:
+                st.session_state["auth_user"] = user
+                st.session_state["just_logged_out"] = False
+                if remember:
+                    st.session_state["pending_remember_token"] = create_session_token(user, ttl_days=30)
+                st.rerun()
+            else:
+                st.error("用户名或密码错误，或账号已停用。")
     st.stop()
 
 
@@ -671,15 +747,15 @@ if page == "交易终端":
 
             rows_html.append(
                 f'<div class="blotter-row">'
-                f'<div style="min-width:240px;flex:1;">'
+                f'<div class="blotter-main">'
                 f'<span class="pill {pill_cls}">{pill_txt}</span>'
-                f'<span style="margin-left:0.65rem;font-weight:600;font-size:0.98rem;color:#ECEEF2;">{_fmt_symbol(sym)}</span>'
-                f'<div class="mono" style="font-size:0.8rem;color:#D4A359;margin-top:0.35rem;">{guide["guidance"]}</div>'
-                f'<div style="font-size:0.78rem;color:#98A0AE;margin-top:0.2rem;">策略理由：{reason}</div>'
+                f'<span class="blotter-title">{_fmt_symbol(sym)}</span>'
+                f'<div class="blotter-guide">{guide["guidance"]}</div>'
+                f'<div class="blotter-reason">{reason}</div>'
                 f'</div>'
-                f'<div style="text-align:right;white-space:nowrap;">'
-                f'<div class="mono" style="font-size:1.02rem;font-weight:600;color:#ECEEF2;">{top_right}</div>'
-                f'<div class="mono" style="font-size:0.76rem;color:#98A0AE;margin-top:0.2rem;">{ref_str}</div>'
+                f'<div class="blotter-side">'
+                f'<div class="blotter-qty">{top_right}</div>'
+                f'<div class="blotter-ref">{ref_str}</div>'
                 f'</div>'
                 f'</div>'
             )
