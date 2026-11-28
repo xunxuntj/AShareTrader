@@ -1,4 +1,4 @@
-"""Feishu custom bot webhook notifier with optional HMAC-SHA256 signing and interactive card formatting."""
+"""Feishu custom bot webhook notifier with HMAC-SHA256 signing and clean structured card layout."""
 
 from __future__ import annotations
 
@@ -14,13 +14,21 @@ import requests
 from ashare_trader.execution.signal_runner import compute_entry_guidance
 from ashare_trader.models import Asset, DataHealthRecord, Position, TradeInstruction
 
+DEFAULT_DASHBOARD_URL = "https://asharerider.streamlit.app/"
+
 
 class FeishuNotifier:
-    """Sends rich interactive cards to a Feishu group custom bot webhook."""
+    """Sends structured, high-readability interactive cards to a Feishu group custom bot webhook."""
 
-    def __init__(self, webhook_url: str | None = None, secret: str | None = None) -> None:
+    def __init__(
+        self,
+        webhook_url: str | None = None,
+        secret: str | None = None,
+        dashboard_url: str | None = None,
+    ) -> None:
         self.webhook_url = (webhook_url or os.getenv("FEISHU_WEBHOOK_URL", "")).strip()
         self.secret = (secret if secret is not None else os.getenv("FEISHU_SECRET", "")).strip()
+        self.dashboard_url = (dashboard_url or os.getenv("DASHBOARD_URL", DEFAULT_DASHBOARD_URL)).strip()
 
     @property
     def is_configured(self) -> bool:
@@ -42,33 +50,165 @@ class FeishuNotifier:
         health_records: list[DataHealthRecord] | None = None,
         run_mode: str = "intraday",
     ) -> dict[str, Any]:
-        """Build Feishu interactive card JSON payload."""
+        """Build a clean, structured Feishu interactive card using native column_set and semantic colors."""
         signal_date = instructions[0].signal_date.isoformat() if instructions else "N/A"
-        mode_label = "尾盘实时信号 (14:35)" if run_mode == "intraday" else "收盘归档确认 (16:30)"
+        mode_label = "尾盘实时信号 · 14:35" if run_mode == "intraday" else "收盘归档确认 · 16:30"
 
         has_action = any(ins.action in ("BUY", "SELL") for ins in instructions)
         failed_health = [h for h in (health_records or []) if h.status == "failed"]
-        header_color = "red" if failed_health else ("orange" if has_action else "blue")
+        header_color = "red" if failed_health else ("orange" if has_action else "indigo")
 
-        # Section 1: Trading Instructions (shared model baseline, per-100k reference shares + entry range)
-        action_lines: list[str] = []
+        # Compute summary allocation (risky vs safe-haven)
+        safe_weight = 0.0
+        risky_weight = 0.0
         for ins in instructions:
             asset = asset_map.get(ins.symbol)
-            label = f"{asset.name}({ins.symbol})" if asset else ins.symbol
-            is_safe = bool(asset and asset.category == "cash")
-            guide = compute_entry_guidance(ins.action, ins.ref_price, ins.stop_loss_price, is_safe_haven=is_safe)
-            icon = {"BUY": "🟢", "SELL": "🔴", "HOLD": "⚪"}.get(ins.action, "⚪")
-            px_txt = f"参考价 {ins.ref_price:.3f}" if ins.ref_price else ""
-            sh_txt = f" | 每10万参考 {ins.suggested_shares:,} 份" if ins.suggested_shares > 0 else ""
-            action_lines.append(
-                f"- **{icon} {guide['action_label']}** {label} → 目标仓位 `{ins.target_weight:.1%}` {px_txt}{sh_txt}\n"
-                f"  操作指引：{guide['guidance']}\n"
-                f"  策略理由：{ins.reason or '按模型权重执行'}"
-            )
-        action_md = "\n".join(action_lines) if action_lines else "今日无调仓指令，维持现有组合。"
-        action_md += "\n\n*提示：以上为公共策略信号（每10万参考份数），登录 Web 终端可按本人资金自动换算精确份数并登记成交。*"
+            if asset and asset.category == "cash":
+                safe_weight += ins.target_weight
+            else:
+                risky_weight += ins.target_weight
 
-        # Section 2: Current Position Stop-Loss Monitor
+        if health_records:
+            ok_cnt = sum(1 for h in health_records if h.status == "ok")
+            deg_cnt = sum(1 for h in health_records if h.status == "degraded")
+            fail_cnt = len(failed_health)
+            if fail_cnt > 0:
+                health_val = f"<font color='red'>{fail_cnt} 异常</font>"
+            elif deg_cnt > 0:
+                health_val = f"<font color='orange'>备源 {deg_cnt}</font>"
+            else:
+                health_val = f"<font color='green'>正常 ({ok_cnt})</font>"
+        else:
+            health_val = "<font color='green'>正常</font>"
+
+        elements: list[dict[str, Any]] = [
+            # 1. Top 3-column KPI overview bar
+            {
+                "tag": "column_set",
+                "flex_mode": "trisect",
+                "background_style": "grey",
+                "horizontal_spacing": "default",
+                "columns": [
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "vertical_align": "center",
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": f"<font color='grey'>风险资产仓位</font>\n**{risky_weight:.0%}**",
+                            }
+                        ],
+                    },
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "vertical_align": "center",
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": f"<font color='grey'>避险底仓</font>\n**{safe_weight:.0%}**",
+                            }
+                        ],
+                    },
+                    {
+                        "tag": "column",
+                        "width": "weighted",
+                        "weight": 1,
+                        "vertical_align": "center",
+                        "elements": [
+                            {
+                                "tag": "markdown",
+                                "content": f"<font color='grey'>行情数据</font>\n**{health_val}**",
+                            }
+                        ],
+                    },
+                ],
+            },
+            {"tag": "hr"},
+        ]
+
+        # 2. Per-asset structured blocks (risky assets first, safe-haven last)
+        sorted_ins = sorted(
+            instructions,
+            key=lambda x: (
+                1 if (asset_map.get(x.symbol) and asset_map[x.symbol].category == "cash") else 0,
+                -x.target_weight,
+            ),
+        )
+
+        if not sorted_ins:
+            elements.append({"tag": "markdown", "content": "今日无调仓指令，维持现有组合。"})
+        else:
+            for idx, ins in enumerate(sorted_ins):
+                asset = asset_map.get(ins.symbol)
+                name = asset.name if asset else ins.symbol
+                is_safe = bool(asset and asset.category == "cash")
+                guide = compute_entry_guidance(ins.action, ins.ref_price, ins.stop_loss_price, is_safe_haven=is_safe)
+
+                color = {"BUY": "red", "SELL": "green", "HOLD": "blue"}.get(ins.action, "grey")
+                if is_safe and ins.action == "HOLD":
+                    color = "grey"
+
+                ref_str = f"{ins.ref_price:.3f}" if ins.ref_price else "—"
+                sh_str = f"每10万约 **{ins.suggested_shares:,}** 份" if ins.suggested_shares > 0 else "—"
+
+                # Row A: Asset name + Action badge (left) | Target Weight + per-100k shares (right)
+                elements.append(
+                    {
+                        "tag": "column_set",
+                        "flex_mode": "none",
+                        "background_style": "default",
+                        "columns": [
+                            {
+                                "tag": "column",
+                                "width": "weighted",
+                                "weight": 3,
+                                "vertical_align": "center",
+                                "elements": [
+                                    {
+                                        "tag": "markdown",
+                                        "content": (
+                                            f"**{name}** <font color='grey'>{ins.symbol}</font>\n"
+                                            f"<font color='{color}'>**[{guide['action_label']}]**</font>"
+                                        ),
+                                    }
+                                ],
+                            },
+                            {
+                                "tag": "column",
+                                "width": "weighted",
+                                "weight": 2,
+                                "vertical_align": "center",
+                                "elements": [
+                                    {
+                                        "tag": "markdown",
+                                        "text_align": "right",
+                                        "content": f"目标仓位 **{ins.target_weight:.1%}**\n<font color='grey'>{sh_str}</font>",
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                )
+
+                # Row B: Clean guidance & reference price box
+                elements.append(
+                    {
+                        "tag": "markdown",
+                        "content": (
+                            f"参考价 `{ref_str}` · {guide['guidance']}\n"
+                            f"<font color='grey'>策略理由：{ins.reason or '按模型权重执行'}</font>"
+                        ),
+                    }
+                )
+
+                if idx < len(sorted_ins) - 1:
+                    elements.append({"tag": "hr"})
+
+        # 3. Optional personal position stop-loss section (omitted in shared group broadcast when positions={})
         stop_lines: list[str] = []
         for sym, pos in positions.items():
             if pos.shares <= 0:
@@ -79,41 +219,53 @@ class FeishuNotifier:
             pnl_pct = (px / pos.avg_cost - 1.0) if pos.avg_cost > 0 else 0.0
             if pos.stop_loss_price and px > 0:
                 cushion = px / pos.stop_loss_price - 1.0
-                warn = " ⚠️接近止损" if cushion < 0.02 else ""
                 stop_lines.append(
-                    f"- {label}: 持仓 {pos.shares} 份 | 现价 `{px:.3f}` ({pnl_pct:+.1%}) | "
-                    f"止损 `{pos.stop_loss_price:.3f}` (安全垫 `{cushion:+.1%}`){warn}"
+                    f"• **{label}** {pos.shares:,}份 | 现价 `{px:.3f}` ({pnl_pct:+.1%}) | "
+                    f"止损 `{pos.stop_loss_price:.3f}` (安全垫 `{cushion:+.1%}`)"
                 )
             else:
-                stop_lines.append(f"- {label}: 持仓 {pos.shares} 份 | 现价 `{px:.3f}` ({pnl_pct:+.1%})")
-        stop_md = "\n".join(stop_lines) if stop_lines else "当前账本暂无实盘持仓记录。"
+                stop_lines.append(f"• **{label}** {pos.shares:,}份 | 现价 `{px:.3f}` ({pnl_pct:+.1%})")
 
-        # Section 3: Data Health Summary
-        if health_records:
-            ok_cnt = sum(1 for h in health_records if h.status == "ok")
-            deg_cnt = sum(1 for h in health_records if h.status == "degraded")
-            fail_cnt = len(failed_health)
-            health_md = f"数据同步：✅ 正常 {ok_cnt} | 🟡 降级备源 {deg_cnt} | ❌ 失败 {fail_cnt}"
-            if failed_health:
-                bad_syms = ", ".join(h.symbol for h in failed_health[:5])
-                health_md += f"\n异常标的：{bad_syms}"
-        else:
-            health_md = "数据源健康检查：未附带本次同步明细"
-
-        elements: list[dict[str, Any]] = [
-            {"tag": "markdown", "content": f"**📌 今日交易信号**\n{action_md}"},
-        ]
         if stop_lines:
             elements.append({"tag": "hr"})
-            elements.append({"tag": "markdown", "content": f"**🛡️ 持仓与止损警戒线**\n{stop_md}"})
+            elements.append({"tag": "markdown", "content": "**持仓止损警戒**\n" + "\n".join(stop_lines)})
+
+        # 4. Action button to open Web Terminal + clean footer note
         elements.append({"tag": "hr"})
-        elements.append({"tag": "markdown", "content": f"**📡 系统状态**\n{health_md}"})
+        if self.dashboard_url:
+            elements.append(
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "打开 Web 终端查看个人精确份数 & 登记成交"},
+                            "type": "primary",
+                            "url": self.dashboard_url,
+                        }
+                    ],
+                }
+            )
+
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": "AShareTrader · TrendATR 跨资产模型 · 群内按10万基准换算，实际请按个人资金执行",
+                    }
+                ],
+            }
+        )
 
         return {
             "msg_type": "interactive",
             "card": {
+                "config": {"wide_screen_mode": True},
                 "header": {
-                    "title": {"tag": "plain_text", "content": f"AShareTrader | {signal_date} {mode_label}"},
+                    "title": {"tag": "plain_text", "content": "AShareTrader 每日策略信号"},
+                    "subtitle": {"tag": "plain_text", "content": f"{signal_date} · {mode_label}"},
                     "template": header_color,
                 },
                 "elements": elements,
