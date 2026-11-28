@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from ashare_trader.auth import AuthService
+from ashare_trader.auth import AuthService, create_session_token, verify_session_token
 from ashare_trader.execution.adherence import build_admin_team_summary, compute_signal_adherence
 from ashare_trader.execution.ledger import LedgerService
 from ashare_trader.execution.signal_runner import run_shared_model_signal
@@ -34,6 +34,30 @@ def test_auth_service_lifecycle_and_disable(tmp_path):
 
     auth.set_active("alice", False)
     assert auth.authenticate("alice", "newpass") is None
+
+
+def test_remember_me_session_token_security(tmp_path):
+    store = LocalStorage(tmp_path)
+    auth = AuthService(store)
+    alice = auth.create_user("alice", "Alice", "pass1", initial_capital=50000.0)
+
+    token = create_session_token(alice, ttl_days=30)
+    restored = verify_session_token(token, store)
+    assert restored is not None and restored.user_id == "alice"
+
+    # Tampered token must fail
+    assert verify_session_token(token + "x", store) is None
+
+    # Password reset must immediately invalidate prior remember-me token
+    auth.reset_password("alice", "pass2")
+    assert verify_session_token(token, store) is None
+
+    # Disabled user must also be rejected even with a fresh token
+    alice_fresh = store.get_user("alice")
+    assert alice_fresh is not None
+    token2 = create_session_token(alice_fresh, ttl_days=30)
+    auth.set_active("alice", False)
+    assert verify_session_token(token2, store) is None
 
 
 def test_per_user_ledger_isolation_and_initial_capital_guard(tmp_path):

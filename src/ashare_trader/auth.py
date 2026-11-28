@@ -6,11 +6,64 @@ import hashlib
 import hmac
 import os
 import secrets
+import time
 
 from ashare_trader.models import AccountState, UserAccount
 from ashare_trader.storage.base import StorageBackend
 
 PBKDF2_ITERATIONS = 120_000
+
+
+def _signing_secret() -> str:
+    """Derive server-side HMAC key for remember-me session tokens."""
+    return (
+        os.getenv("APP_PASSWORD", "").strip()
+        or os.getenv("SUPABASE_KEY", "").strip()
+        or "ashare_trader_local_dev_key"
+    )
+
+
+def create_session_token(user: UserAccount, ttl_days: int = 30) -> str:
+    """Generate a signed remember-me token bound to user_id, expiry, and password_hash."""
+    exp_ts = int(time.time()) + int(ttl_days) * 86400
+    pwd_fp = user.password_hash[:24]
+    payload = f"{user.user_id}|{exp_ts}"
+    sig = hmac.new(
+        _signing_secret().encode("utf-8"),
+        f"{payload}|{pwd_fp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{payload}|{sig}"
+
+
+def verify_session_token(token: str | None, storage: StorageBackend) -> UserAccount | None:
+    """Validate remember-me token signature, expiry, active status, and password freshness."""
+    if not token or "|" not in token:
+        return None
+    parts = token.strip().split("|")
+    if len(parts) != 3:
+        return None
+    uid, exp_str, sig = parts
+    try:
+        exp_ts = int(exp_str)
+    except ValueError:
+        return None
+    if exp_ts < int(time.time()):
+        return None
+
+    user = storage.get_user(uid)
+    if user is None or not user.is_active:
+        return None
+
+    pwd_fp = user.password_hash[:24]
+    expected = hmac.new(
+        _signing_secret().encode("utf-8"),
+        f"{uid}|{exp_ts}|{pwd_fp}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    return user
 
 
 def hash_password(password: str) -> str:

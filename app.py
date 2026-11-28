@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,13 @@ _SRC_DIR = str(Path(__file__).resolve().parent / "src")
 if _SRC_DIR not in sys.path:
     sys.path.insert(0, _SRC_DIR)
 
+import extra_streamlit_components as stx
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from ashare_trader.auth import AuthService
+from ashare_trader.auth import AuthService, create_session_token, verify_session_token
 from ashare_trader.config_loader import (
     load_backtest_config,
     load_strategies_config,
@@ -283,14 +285,46 @@ storage = create_storage()
 auth_service = AuthService(storage)
 auth_service.ensure_default_admin()
 
+COOKIE_NAME = "ashare_session"
+cookie_manager = stx.CookieManager(key="ashare_cookie_mgr")
+
+
+def _read_remember_token() -> str | None:
+    """Read signed remember-me cookie: fast server-side st.context.cookies first, then CookieManager."""
+    if st.session_state.get("just_logged_out", False):
+        return None
+    try:
+        ctx_cookies = getattr(st.context, "cookies", None)
+        if ctx_cookies and COOKIE_NAME in ctx_cookies:
+            val = ctx_cookies.get(COOKIE_NAME)
+            if val:
+                return str(val)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        val = cookie_manager.get(COOKIE_NAME)
+        if val:
+            return str(val)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
 
 # ------------------------------------------------------------------------------
-# Login Gate
+# Login Gate (with 30-Day Remember-Me Signed Cookie)
 # ------------------------------------------------------------------------------
 def _render_login_gate() -> UserAccount:
     current = st.session_state.get("auth_user")
     if isinstance(current, UserAccount):
         return current
+
+    # Try auto-login via signed cookie
+    token = _read_remember_token()
+    if token:
+        restored = verify_session_token(token, storage)
+        if restored is not None:
+            st.session_state["auth_user"] = restored
+            return restored
 
     _, center, _ = st.columns([1.2, 1.4, 1.2])
     with center:
@@ -305,11 +339,15 @@ def _render_login_gate() -> UserAccount:
         with st.form("login_form", border=True):
             uid = st.text_input("用户名", placeholder="例如 admin")
             pwd = st.text_input("密码", type="password")
+            remember = st.checkbox("记住我（30 天免登录，飞书点击直达）", value=True)
             submitted = st.form_submit_button("登录终端", type="primary", use_container_width=True)
             if submitted:
                 user = auth_service.authenticate(uid, pwd)
                 if user is not None:
                     st.session_state["auth_user"] = user
+                    st.session_state["just_logged_out"] = False
+                    if remember:
+                        st.session_state["pending_remember_token"] = create_session_token(user, ttl_days=30)
                     st.rerun()
                 else:
                     st.error("用户名或密码错误，或账号已停用。")
@@ -318,6 +356,19 @@ def _render_login_gate() -> UserAccount:
 
 auth_user = _render_login_gate()
 is_admin = auth_user.role == "admin"
+
+# Persist remember-me cookie on the rendered post-login page so frontend component commits reliably
+_pending_tok = st.session_state.pop("pending_remember_token", None)
+if _pending_tok:
+    try:
+        cookie_manager.set(
+            COOKIE_NAME,
+            _pending_tok,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            key="set_auth_cookie",
+        )
+    except Exception:  # noqa: BLE001
+        pass
 
 universe = load_universe()
 strat_cfg = load_strategies_config()
@@ -476,6 +527,11 @@ if c_ref.button("刷新缓存", use_container_width=True):
     st.rerun()
 if c_out.button("退出登录", use_container_width=True):
     st.session_state.pop("auth_user", None)
+    st.session_state["just_logged_out"] = True
+    try:
+        cookie_manager.delete(COOKIE_NAME, key="del_auth_cookie")
+    except Exception:  # noqa: BLE001
+        pass
     st.rerun()
 
 
